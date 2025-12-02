@@ -4,11 +4,16 @@ import { createDrawerNavigator, DrawerContentScrollView, DrawerItemList, DrawerI
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { StatusBar, Image, Linking, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useFonts, Neucha_400Regular } from '@expo-google-fonts/neucha';
+import { useFonts } from 'expo-font';
+import { Neucha_400Regular } from '@expo-google-fonts/neucha';
+import { CabinSketch_400Regular } from '@expo-google-fonts/cabin-sketch';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { dataService } from './services/dataService';
+import { backgroundTaskService } from './services/backgroundTaskService';
 import 'react-native-gesture-handler';
 import HomeScreen from './screens/HomeScreen';
 import PollyDetailScreen from './screens/PollyDetailScreen';
-import Text from './components/CustomText';
+import CustomText from './components/CustomText';
 
 const Drawer = createDrawerNavigator();
 const Stack = createNativeStackNavigator();
@@ -28,10 +33,10 @@ function CustomDrawerContent(props: any) {
       <View style={{ padding: 20, alignItems: 'center', backgroundColor: 'rgba(248, 249, 250, 0.5)' }}>
         <Image
           source={require('./assets/logo.png')}
-          style={{ width: 80, height: 80, marginBottom: 10 }}
+          style={{ width: 100, height: 100, marginBottom: 10 }}
           resizeMode="contain"
         />
-        <Text style={{ fontSize: 18, fontWeight: 'bold' }}>CarPolly</Text>
+        <CustomText type='h1'>CarPolly</CustomText>
       </View>
       <DrawerItemList {...props} />
       <DrawerItem
@@ -66,22 +71,25 @@ function HomeStack() {
           title: 'CarPolly',
           headerStyle: {
             backgroundColor: 'rgba(248, 249, 250, 0.5)',
+            height: 71,
           },
           headerTitleAlign: 'center',
           headerTitleStyle: {
+            fontFamily: 'CabinSketch_400Regular',
+            fontSize: 24,
           },
           headerShadowVisible: false,
           headerLeft: () => (
             <Image
               source={require('./assets/logo.png')}
-              style={{ width: 50, height: 50, marginLeft: 10 }}
+              style={{ width: 70, height: 70, marginLeft: 10 }}
               resizeMode="contain"
             />
           ),
           headerRight: () => <MenuButton />,
         })}
       />
-      <Stack.Screen name="PollyDetail" component={PollyDetailScreen} options={{ title: 'Polly Details' }} />
+      <Stack.Screen name="PollyDetail" component={PollyDetailScreen} />
     </Stack.Navigator>
   );
 }
@@ -89,7 +97,13 @@ function HomeStack() {
 export default function App() {
   const [fontsLoaded] = useFonts({
     Neucha_400Regular,
+    CabinSketch_400Regular,
   });
+
+  React.useEffect(() => {
+    // Initialize background task service
+    backgroundTaskService.init();
+  }, []);
 
   if (!fontsLoaded) {
     return null;

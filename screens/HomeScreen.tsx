@@ -1,13 +1,18 @@
-import React, { useState } from 'react';
-import { View, TextInput, TouchableOpacity, StyleSheet, Alert, ScrollView, Linking, Image } from 'react-native';
+import 'react-native-get-random-values';
+import React, { useState, useEffect } from 'react';
+import { View, TextInput, TouchableOpacity, StyleSheet, ScrollView, Linking, Image } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Ionicons } from '@expo/vector-icons';
 import Text from '../components/CustomText';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { v4 as uuidv4 } from 'uuid';
 import { dataService } from '../services/dataService';
 import { ValidationService } from '../services/validationService';
+import { errorService } from '../services/errorService';
 import type { Polly } from '../models/polly.model';
+import CustomText from '../components/CustomText';
 
 type RootStackParamList = {
   Home: undefined;
@@ -18,6 +23,25 @@ export default function HomeScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const [description, setDescription] = useState('');
   const [descriptionError, setDescriptionError] = useState('');
+  const [pollyIds, setPollyIds] = useState<string[]>([]);
+  const [descriptions, setDescriptions] = useState<{ [id: string]: string }>({});
+
+  useEffect(() => {
+    AsyncStorage.getItem('pollyIds').then(ids => {
+      if (ids) {
+        const parsed = JSON.parse(ids);
+        setPollyIds(parsed);
+        // Fetch descriptions
+        parsed.forEach((id: string) => {
+          dataService.getPolly(id).then(polly => {
+            if (polly) {
+              setDescriptions(prev => ({ ...prev, [id]: polly.description || 'Unknown' }));
+            }
+          });
+        });
+      }
+    });
+  }, []);
 
   const resetDescriptionError = () => {
     setDescriptionError('');
@@ -46,16 +70,36 @@ export default function HomeScreen() {
       created: new Date()
     };
 
-    try {
-      await dataService.createPolly(id, polly);
+    const result = await dataService.createPolly(id, polly);
+    if (result !== null) {
+      await savePollyIds([...pollyIds, id]);
+      setDescriptions(prev => ({ ...prev, [id]: description }));
       navigation.navigate('PollyDetail', { id });
-    } catch (error) {
-      Alert.alert('Error', 'Failed to create polly');
     }
   };
 
   const openFAQ = () => {
     Linking.openURL('https://carpolly.com/support');
+  };
+
+  const savePollyIds = async (ids: string[]) => {
+    setPollyIds(ids);
+    await AsyncStorage.setItem('pollyIds', JSON.stringify(ids));
+  };
+
+  const removePolly = async (id: string) => {
+    const newIds = pollyIds.filter(i => i !== id);
+    await savePollyIds(newIds);
+    setDescriptions(prev => {
+      const newDesc = { ...prev };
+      delete newDesc[id];
+      return newDesc;
+    });
+  };
+
+  const clearAllPollies = async () => {
+    await savePollyIds([]);
+    setDescriptions({});
   };
 
   return (
@@ -67,10 +111,10 @@ export default function HomeScreen() {
     >
       <ScrollView contentContainerStyle={styles.scrollContent}>
         <View style={styles.content}>
-          <Text style={styles.title}>Let's get started!</Text>
+          <CustomText type="h1" style={styles.title}>Let's get started!</CustomText>
           <View style={styles.card}>
-            <Text style={styles.label}>Describe your Polly</Text>
-            <Text style={styles.hint}>Just keep it simple, e.g. Ice skating 10/11/2025</Text>
+            <CustomText style={styles.label}>Describe your Polly</CustomText>
+            <CustomText style={styles.hint}>Just keep it simple, e.g. Ice skating 10/11/2025</CustomText>
             <TextInput
               style={[styles.input, descriptionError ? styles.inputError : null]}
               value={description}
@@ -82,14 +126,37 @@ export default function HomeScreen() {
               maxLength={60}
               onSubmitEditing={onSubmit}
             />
-            {descriptionError ? <Text style={styles.errorText}>{descriptionError}</Text> : null}
+            {descriptionError ? <CustomText style={styles.errorText}>{descriptionError}</CustomText> : null}
             <TouchableOpacity style={styles.button} onPress={onSubmit}>
-              <Text style={styles.buttonText}>Create a Carpolly!</Text>
+              <CustomText style={styles.buttonText}>Create a Carpolly!</CustomText>
             </TouchableOpacity>
             <TouchableOpacity onPress={openFAQ}>
-              <Text style={styles.link}>What in parrots name is this?!</Text>
+              <CustomText style={styles.link}>What in parrots name is this?!</CustomText>
             </TouchableOpacity>
           </View>
+          {pollyIds.length > 0 && (
+            <View style={styles.card}>
+              <View style={styles.cardHeader}>
+                <CustomText style={styles.label}>Your previous Carpollies</CustomText>
+                <TouchableOpacity onPress={clearAllPollies}>
+                  <CustomText>Clear All <Ionicons name="trash" size={20} color="red" /></CustomText>
+                </TouchableOpacity>
+              </View>
+              {pollyIds.map((id) => (
+                <View key={id} style={styles.pollyItem}>
+                  <TouchableOpacity
+                    style={styles.pollyContent}
+                    onPress={() => navigation.navigate('PollyDetail', { id })}
+                  >
+                    <CustomText>{descriptions[id] || 'Loading...'}</CustomText>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => removePolly(id)}>
+                    <Ionicons name="trash" size={16} color="red" />
+                  </TouchableOpacity>
+                </View>
+              ))}
+            </View>
+          )}
           <Image
             source={require('../assets/parrot-below.png')}
             style={styles.parrotDecoration}
@@ -114,12 +181,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   title: {
-    fontSize: 24,
-    fontWeight: 'bold',
     marginBottom: 20,
     textAlign: 'center',
     color: '#fff',
-    fontFamily: 'Neucha_400Regular',
   },
   card: {
     backgroundColor: 'rgba(248, 249, 250, 0.9)',
@@ -132,10 +196,10 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 4,
     elevation: 3,
+    marginBottom: 20,
   },
   label: {
     fontSize: 16,
-    fontWeight: 'bold',
     marginBottom: 5,
   },
   hint: {
@@ -151,6 +215,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     marginBottom: 10,
     backgroundColor: '#fff',
+    fontFamily: "Neucha_400Regular",
   },
   inputError: {
     borderColor: '#dc3545',
@@ -177,7 +242,6 @@ const styles = StyleSheet.create({
   buttonText: {
     color: '#000',
     fontSize: 16,
-    fontWeight: 'bold',
   },
   link: {
     color: '#007bff',
@@ -185,10 +249,29 @@ const styles = StyleSheet.create({
     marginTop: 10,
     fontSize: 14,
   },
+  cardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  pollyItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    padding: 10,
+    borderRadius: 4,
+    marginBottom: 5,
+    borderWidth: 1,
+    borderColor: '#ced4da',
+  },
+  pollyContent: {
+    flex: 1,
+  },
   parrotDecoration: {
     width: 100,
     height: 100,
-    marginTop: -25,
+    marginTop: -45,
     opacity: 0.8,
   },
 });

@@ -15,10 +15,12 @@ const app = initializeApp(firebaseConfig)
 export const db = getFirestore(app)
 
 // Connect to Firestore emulator in development
+/**
 if (__DEV__) {
   try {
-    connectFirestoreEmulator(db, 'localhost', 8080)
+    connectFirestoreEmulator(db, '10.0.2.2', 8080)
   } catch (error) {
     console.log('Firestore emulator already connected')
   }
 }
+  **/

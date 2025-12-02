@@ -10,8 +10,10 @@ import {
   deleteDoc,
   updateDoc
 } from 'firebase/firestore'
+import AsyncStorage from '@react-native-async-storage/async-storage'
 import { db } from '../firebase'
 import { ValidationService } from './validationService'
+import { errorService } from './errorService'
 import type { Polly } from '../models/polly.model'
 import type { Driver } from '../models/driver.model'
 import type { Consumer } from '../models/consumer.model'
@@ -35,179 +37,273 @@ class DataService {
       throw new Error(descValidation.error)
     }
 
-    const docRef = doc(db, this.pollyCollection, id)
-    const { drivers, ...pollyData } = polly
-    const data = { ...pollyData, created: serverTimestamp() }
-    await setDoc(docRef, data, { merge: false })
+    return await errorService.withErrorHandling(async () => {
+      const docRef = doc(db, this.pollyCollection, id)
+      const { drivers, ...pollyData } = polly
+      const data = { ...pollyData, created: serverTimestamp() }
+      await setDoc(docRef, data, { merge: false })
 
-    if (drivers && drivers.length > 0) {
-      const driversCollection = collection(docRef, 'drivers')
-      for (const driver of drivers) {
-        const { consumers, ...driverData } = driver
-        const driverDocRef = await addDoc(driversCollection, driverData)
+      if (drivers && drivers.length > 0) {
+        const driversCollection = collection(docRef, 'drivers')
+        for (const driver of drivers) {
+          const { consumers, ...driverData } = driver
+          const driverDocRef = await addDoc(driversCollection, driverData)
 
-        if (consumers && consumers.length > 0) {
-          const consumersCollection = collection(driverDocRef, 'consumers')
-          for (const consumer of consumers) {
-            await addDoc(consumersCollection, consumer)
+          if (consumers && consumers.length > 0) {
+            const consumersCollection = collection(driverDocRef, 'consumers')
+            for (const consumer of consumers) {
+              await addDoc(consumersCollection, consumer)
+            }
           }
         }
       }
-    }
+      return true;
+    }, { operation: 'create', entity: 'polly' }, false) // Don't show toast here, let the caller handle it
   }
 
   async getPolly(id: string) {
-    const docRef = doc(db, this.pollyCollection, id)
-    const docSnap = await getDoc(docRef)
-    if (docSnap.exists()) {
-      const data = docSnap.data()
-      const driversCollection = collection(docRef, 'drivers')
-      const driversSnap = await getDocs(driversCollection)
-      const drivers = await Promise.all(driversSnap.docs.map(async driverDoc => {
-        const consumersCollection = collection(driverDoc.ref, 'consumers')
-        const consumersSnap = await getDocs(consumersCollection)
-        const consumers = consumersSnap.docs.map(consumerDoc => ({ id: consumerDoc.id, ...consumerDoc.data() }))
-        return { id: driverDoc.id, ...driverDoc.data(), consumers } as Driver
-      }))
-      return { ...data, created: data.created?.toDate(), drivers } as Polly
-    } else {
-      throw new Error('Polly not found')
-    }
-  }
-
-  async updatePolly(id: string, polly: Partial<Polly>) {
-    const docRef = doc(db, this.pollyCollection, id)
-    const pollyData = { ...polly }
-    delete pollyData.drivers
-    if (Object.keys(pollyData).length > 0) {
-      await setDoc(docRef, pollyData, { merge: true })
-    }
-  }
-
-  async createDriver(pollyId: string, driver: Driver) {
-    // Validate inputs
-    const uuidValidation = ValidationService.validateUUID(pollyId)
-    if (!uuidValidation.isValid) {
-      throw new Error('Invalid Polly ID format')
-    }
-
-    if (!driver.name || !driver.description || typeof driver.spots !== 'number') {
-      throw new Error('Driver name, description, and spots are required')
-    }
-    const driverValidation = ValidationService.validateDriverForm(driver.name, driver.description, driver.spots)
-    if (!driverValidation.isValid) {
-      throw new Error(Object.values(driverValidation.errors).join(', '))
-    }
-
-    const pollyDocRef = doc(db, this.pollyCollection, pollyId)
-    const driversCollection = collection(pollyDocRef, 'drivers')
-    const { consumers, ...driverData } = driver
-    const driverDocRef = await addDoc(driversCollection, driverData)
-
-    if (consumers && consumers.length > 0) {
-      for (const consumer of consumers) {
-        await this.createConsumer(pollyId, driverDocRef.id, consumer)
-      }
-    }
-
-    return driverDocRef.id
-  }
-
-  async updateDriver(pollyId: string, driverId: string, driver: Partial<Driver>) {
-    const pollyDocRef = doc(db, this.pollyCollection, pollyId)
-    const driverDocRef = doc(collection(pollyDocRef, 'drivers'), driverId)
-    const driverData = { ...driver }
-    delete driverData.consumers
-    await updateDoc(driverDocRef, driverData)
-
-    // Update driver timestamp to trigger subscription
-    await updateDoc(driverDocRef, { lastUpdated: serverTimestamp() })
-  }
-
-  async deleteDriver(pollyId: string, driverId: string) {
-    const pollyDocRef = doc(db, this.pollyCollection, pollyId)
-    const driverDocRef = doc(collection(pollyDocRef, 'drivers'), driverId)
-    await deleteDoc(driverDocRef)
-  }
-
-  async createConsumer(pollyId: string, driverId: string, consumer: Consumer) {
-    // Validate inputs
-    const pollyUuidValidation = ValidationService.validateUUID(pollyId)
-    if (!pollyUuidValidation.isValid) {
-      throw new Error('Invalid Polly ID format')
-    }
-
-    if (!consumer.name) {
-      throw new Error('Consumer name is required')
-    }
-    const consumerValidation = ValidationService.validateConsumerForm(consumer.name, consumer.comments || '')
-    if (!consumerValidation.isValid) {
-      throw new Error(Object.values(consumerValidation.errors).join(', '))
-    }
-
-    const pollyDocRef = doc(db, this.pollyCollection, pollyId)
-    const driverDocRef = doc(collection(pollyDocRef, 'drivers'), driverId)
-    const consumersCollection = collection(driverDocRef, 'consumers')
-    const consumerDocRef = await addDoc(consumersCollection, consumer)
-    return consumerDocRef.id
-  }
-
-  async updateConsumer(pollyId: string, driverId: string, consumerId: string, consumer: Partial<Consumer>) {
-    const pollyDocRef = doc(db, this.pollyCollection, pollyId)
-    const driverDocRef = doc(collection(pollyDocRef, 'drivers'), driverId)
-    const consumerDocRef = doc(collection(driverDocRef, 'consumers'), consumerId)
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const { id: _, ...consumerData } = consumer
-    await updateDoc(consumerDocRef, consumerData)
-  }
-
-  async deleteConsumer(pollyId: string, driverId: string, consumerId: string) {
-    const pollyDocRef = doc(db, this.pollyCollection, pollyId)
-    const driverDocRef = doc(collection(pollyDocRef, 'drivers'), driverId)
-    const consumerDocRef = doc(collection(driverDocRef, 'consumers'), consumerId)
-    await deleteDoc(consumerDocRef)
-  }
-
-  subscribeToPolly(id: string, callback: (polly: Polly | null) => void) {
-    const docRef = doc(db, this.pollyCollection, id)
-    const driversCollection = collection(docRef, 'drivers')
-
-    // Listen to changes in the drivers collection
-    const unsubscribeDrivers = onSnapshot(driversCollection, async (driversSnap) => {
+    return await errorService.withErrorHandling(async () => {
+      const docRef = doc(db, this.pollyCollection, id)
       const docSnap = await getDoc(docRef)
       if (docSnap.exists()) {
         const data = docSnap.data()
+        const driversCollection = collection(docRef, 'drivers')
+        const driversSnap = await getDocs(driversCollection)
         const drivers = await Promise.all(driversSnap.docs.map(async driverDoc => {
           const consumersCollection = collection(driverDoc.ref, 'consumers')
-          // Listen to changes in consumers for each driver
-          onSnapshot(consumersCollection, (consumersSnap) => {
-            const consumers = consumersSnap.docs.map(consumerDoc => ({ id: consumerDoc.id, ...consumerDoc.data() }))
-            // Trigger callback when consumers change - rebuild full drivers list
-            Promise.all(driversSnap.docs.map(async d => {
-              if (d.id === driverDoc.id) {
-                return { id: d.id, ...d.data(), consumers } as Driver
-              } else {
-                const otherConsumersCollection = collection(d.ref, 'consumers')
-                const otherConsumersSnap = await getDocs(otherConsumersCollection)
-                const otherConsumers = otherConsumersSnap.docs.map(c => ({ id: c.id, ...c.data() }))
-                return { id: d.id, ...d.data(), consumers: otherConsumers } as Driver
-              }
-            })).then(finalDrivers => {
-              callback({ ...data, created: data.created?.toDate(), drivers: finalDrivers } as Polly)
-            })
-          })
-          // For initial load, get consumers synchronously
           const consumersSnap = await getDocs(consumersCollection)
           const consumers = consumersSnap.docs.map(consumerDoc => ({ id: consumerDoc.id, ...consumerDoc.data() }))
           return { id: driverDoc.id, ...driverDoc.data(), consumers } as Driver
         }))
-        callback({ ...data, created: data.created?.toDate(), drivers } as Polly)
+        return { ...data, created: data.created?.toDate(), drivers } as Polly
       } else {
-        callback(null)
+        throw new Error('Polly not found')
       }
-    })
+    }, { operation: 'fetch', entity: 'polly' }, false) // Don't show toast here, let the caller handle it
+  }
 
-    return unsubscribeDrivers
+  async updatePolly(id: string, polly: Partial<Polly>) {
+    return await errorService.withErrorHandling(async () => {
+      const docRef = doc(db, this.pollyCollection, id)
+      const pollyData = { ...polly }
+      delete pollyData.drivers
+      if (Object.keys(pollyData).length > 0) {
+        await setDoc(docRef, pollyData, { merge: true })
+      }
+      return true;
+    }, { operation: 'update', entity: 'polly' }, true) // Show toast for user feedback
+  }
+
+  async createDriver(pollyId: string, driver: Driver) {
+    return await errorService.withErrorHandling(async () => {
+      // Validate inputs
+      const uuidValidation = ValidationService.validateUUID(pollyId)
+      if (!uuidValidation.isValid) {
+        throw new Error('Invalid Polly ID format')
+      }
+
+      if (!driver.name || !driver.description || typeof driver.spots !== 'number') {
+        throw new Error('Driver name, description, and spots are required')
+      }
+      const driverValidation = ValidationService.validateDriverForm(driver.name, driver.description, driver.spots)
+      if (!driverValidation.isValid) {
+        throw new Error(Object.values(driverValidation.errors).join(', '))
+      }
+
+      const pollyDocRef = doc(db, this.pollyCollection, pollyId)
+      const driversCollection = collection(pollyDocRef, 'drivers')
+      const { consumers, ...driverData } = driver
+      const driverDocRef = await addDoc(driversCollection, driverData)
+
+      if (consumers && consumers.length > 0) {
+        for (const consumer of consumers) {
+          await this.createConsumer(pollyId, driverDocRef.id, consumer)
+        }
+      }
+
+      return driverDocRef.id
+    }, { operation: 'create', entity: 'driver' }, true) // Show toast for user feedback
+  }
+
+  async updateDriver(pollyId: string, driverId: string, driver: Partial<Driver>) {
+    return await errorService.withErrorHandling(async () => {
+      const pollyDocRef = doc(db, this.pollyCollection, pollyId)
+      const driverDocRef = doc(collection(pollyDocRef, 'drivers'), driverId)
+      const driverData = { ...driver }
+      delete driverData.consumers
+      await updateDoc(driverDocRef, driverData)
+
+      // Update driver timestamp to trigger subscription
+      await updateDoc(driverDocRef, { lastUpdated: serverTimestamp() })
+      return true;
+    }, { operation: 'update', entity: 'driver' }, true) // Show toast for user feedback
+  }
+
+  async deleteDriver(pollyId: string, driverId: string) {
+    return await errorService.withErrorHandling(async () => {
+      const pollyDocRef = doc(db, this.pollyCollection, pollyId)
+      const driverDocRef = doc(collection(pollyDocRef, 'drivers'), driverId)
+      await deleteDoc(driverDocRef)
+      return true;
+    }, { operation: 'delete', entity: 'driver' }, true) // Show toast for user feedback
+  }
+
+  async createConsumer(pollyId: string, driverId: string, consumer: Consumer) {
+    return await errorService.withErrorHandling(async () => {
+      // Validate inputs
+      const pollyUuidValidation = ValidationService.validateUUID(pollyId)
+      if (!pollyUuidValidation.isValid) {
+        throw new Error('Invalid Polly ID format')
+      }
+
+      if (!consumer.name) {
+        throw new Error('Consumer name is required')
+      }
+      const consumerValidation = ValidationService.validateConsumerForm(consumer.name, consumer.comments || '')
+      if (!consumerValidation.isValid) {
+        throw new Error(Object.values(consumerValidation.errors).join(', '))
+      }
+
+      const pollyDocRef = doc(db, this.pollyCollection, pollyId)
+      const driverDocRef = doc(collection(pollyDocRef, 'drivers'), driverId)
+      const consumersCollection = collection(driverDocRef, 'consumers')
+      const data: any = { name: consumer.name };
+      if (consumer.comments) data.comments = consumer.comments;
+      const consumerDocRef = await addDoc(consumersCollection, data)
+      return consumerDocRef.id
+    }, { operation: 'create', entity: 'passenger' }, true) // Show toast for user feedback
+  }
+
+  async updateConsumer(pollyId: string, driverId: string, consumerId: string, consumer: Partial<Consumer>) {
+    return await errorService.withErrorHandling(async () => {
+      const pollyDocRef = doc(db, this.pollyCollection, pollyId)
+      const driverDocRef = doc(collection(pollyDocRef, 'drivers'), driverId)
+      const consumerDocRef = doc(collection(driverDocRef, 'consumers'), consumerId)
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { id: _, ...consumerData } = consumer
+      await updateDoc(consumerDocRef, consumerData)
+      return true;
+    }, { operation: 'update', entity: 'passenger' }, true) // Show toast for user feedback
+  }
+
+  async deleteConsumer(pollyId: string, driverId: string, consumerId: string) {
+    return await errorService.withErrorHandling(async () => {
+      const pollyDocRef = doc(db, this.pollyCollection, pollyId)
+      const driverDocRef = doc(collection(pollyDocRef, 'drivers'), driverId)
+      const consumerDocRef = doc(collection(driverDocRef, 'consumers'), consumerId)
+      await deleteDoc(consumerDocRef)
+      return true;
+    }, { operation: 'delete', entity: 'passenger' }, true) // Show toast for user feedback
+  }
+
+  subscribeToPolly(id: string, callback: (polly: Polly | null) => void) {
+    return errorService.withErrorHandling(async () => {
+      const docRef = doc(db, this.pollyCollection, id)
+      const driversCollection = collection(docRef, 'drivers')
+
+      // Listen to changes in the drivers collection
+      const unsubscribeDrivers = onSnapshot(driversCollection, async (driversSnap) => {
+        try {
+          const docSnap = await getDoc(docRef)
+          if (docSnap.exists()) {
+            const data = docSnap.data()
+            const drivers = await Promise.all(driversSnap.docs.map(async driverDoc => {
+              const consumersCollection = collection(driverDoc.ref, 'consumers')
+              // Listen to changes in consumers for each driver
+              onSnapshot(consumersCollection, (consumersSnap) => {
+                const consumers = consumersSnap.docs.map(consumerDoc => ({ id: consumerDoc.id, ...consumerDoc.data() }))
+                // Trigger callback when consumers change - rebuild full drivers list
+                Promise.all(driversSnap.docs.map(async d => {
+                  if (d.id === driverDoc.id) {
+                    return { id: d.id, ...d.data(), consumers } as Driver
+                  } else {
+                    const otherConsumersCollection = collection(d.ref, 'consumers')
+                    const otherConsumersSnap = await getDocs(otherConsumersCollection)
+                    const otherConsumers = otherConsumersSnap.docs.map(c => ({ id: c.id, ...c.data() }))
+                    return { id: d.id, ...d.data(), consumers: otherConsumers } as Driver
+                  }
+                })).then(finalDrivers => {
+                  callback({ ...data, created: data.created?.toDate(), drivers: finalDrivers } as Polly)
+                })
+              })
+              // For initial load, get consumers synchronously
+              const consumersSnap = await getDocs(consumersCollection)
+              const consumers = consumersSnap.docs.map(consumerDoc => ({ id: consumerDoc.id, ...consumerDoc.data() }))
+              return { id: driverDoc.id, ...driverDoc.data(), consumers } as Driver
+            }))
+            callback({ ...data, created: data.created?.toDate(), drivers } as Polly)
+          } else {
+            callback(null)
+          }
+        } catch (error) {
+          console.error('Error in subscribeToPolly:', error)
+          // Don't show toast for subscription errors as they can be noisy
+        }
+      })
+
+      return unsubscribeDrivers
+    }, { operation: 'subscribe to', entity: 'polly' }, false) // Don't show toast for subscription errors
+  }
+
+  subscribeToPollies(callback: (pollies: Polly[]) => void) {
+    return errorService.withErrorHandling(async () => {
+      const polliesCollection = collection(db, this.pollyCollection)
+
+      const unsubscribe = onSnapshot(polliesCollection, async (polliesSnap) => {
+        try {
+          const pollies = await Promise.all(polliesSnap.docs.map(async pollyDoc => {
+            const data = pollyDoc.data()
+            const driversCollection = collection(pollyDoc.ref, 'drivers')
+            const driversSnap = await getDocs(driversCollection)
+            const drivers = await Promise.all(driversSnap.docs.map(async driverDoc => {
+              const consumersCollection = collection(driverDoc.ref, 'consumers')
+              const consumersSnap = await getDocs(consumersCollection)
+              const consumers = consumersSnap.docs.map(consumerDoc => ({ id: consumerDoc.id, ...consumerDoc.data() }))
+              return { id: driverDoc.id, ...driverDoc.data(), consumers } as Driver
+            }))
+            return { id: pollyDoc.id, ...data, created: data.created?.toDate(), drivers } as Polly
+          }))
+          callback(pollies)
+        } catch (error) {
+          console.error('Error in subscribeToPollies:', error)
+          // Don't show toast for subscription errors as they can be noisy
+        }
+      })
+
+      return unsubscribe
+    }, { operation: 'subscribe to', entity: 'pollies' }, false) // Don't show toast for subscription errors
+  }
+
+  // Notification settings persistence methods
+  private getNotificationStorageKey(pollyId: string): string {
+    return `notification_settings_${pollyId}`
+  }
+
+  async saveNotificationSettings(pollyId: string, enabled: boolean): Promise<boolean> {
+    const result = await errorService.withErrorHandling(async () => {
+      const storageKey = this.getNotificationStorageKey(pollyId)
+      await AsyncStorage.setItem(storageKey, JSON.stringify({ enabled, timestamp: Date.now() }))
+      return true
+    }, { operation: 'save', entity: 'notification settings' }, false)
+    return result !== null
+  }
+
+  async loadNotificationSettings(pollyId: string): Promise<boolean> {
+    const result = await errorService.withErrorHandling(async () => {
+      const storageKey = this.getNotificationStorageKey(pollyId)
+      const storedSettings = await AsyncStorage.getItem(storageKey)
+      if (storedSettings) {
+        try {
+          const { enabled } = JSON.parse(storedSettings)
+          return enabled || false
+        } catch (error) {
+          console.error('Error parsing notification settings:', error)
+          return false
+        }
+      }
+      return false
+    }, { operation: 'load', entity: 'notification settings' }, false)
+    return result || false
   }
 }
 
