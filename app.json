@@ -30,6 +30,7 @@
     "plugins": [
       "expo-font"
     ],
+    "scheme": "carpolly",
     "extra": {
       "eas": {
         "projectId": "b0f85837-57bd-4452-abfe-7540d102c435"

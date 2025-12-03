@@ -2,11 +2,12 @@ import React from 'react';
 import { NavigationContainer, DrawerActions, useNavigation } from '@react-navigation/native';
 import { createDrawerNavigator, DrawerContentScrollView, DrawerItemList, DrawerItem } from '@react-navigation/drawer';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import { StatusBar, Image, Linking, TouchableOpacity, View } from 'react-native';
+import { StatusBar, Image, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useFonts } from 'expo-font';
 import { Neucha_400Regular } from '@expo-google-fonts/neucha';
 import { CabinSketch_400Regular } from '@expo-google-fonts/cabin-sketch';
+import * as Linking from 'expo-linking';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { dataService } from './services/dataService';
 import { backgroundTaskService } from './services/backgroundTaskService';
@@ -17,6 +18,19 @@ import CustomText from './components/CustomText';
 
 const Drawer = createDrawerNavigator();
 const Stack = createNativeStackNavigator();
+
+const linking = {
+  prefixes: [Linking.createURL('/'), 'carpolly://', 'https://carpolly.com'],
+  config: {
+    screens: {
+      HomeStack: {
+        screens: {
+          PollyDetail: 'polly/:id',
+        },
+      },
+    },
+  },
+};
 
 function MenuButton() {
   const navigation = useNavigation();
@@ -110,7 +124,7 @@ export default function App() {
   }
 
   return (
-    <NavigationContainer>
+    <NavigationContainer linking={linking as any}>
       <Drawer.Navigator
         drawerContent={(props) => <CustomDrawerContent {...props} />}
         screenOptions={{
