@@ -43,9 +43,9 @@
   },
   "devDependencies": {
     "@babel/plugin-syntax-flow": "^7.27.1",
+    "@babel/preset-flow": "^7.27.1",
     "@types/react": "~19.1.0",
     "babel-preset-expo": "^54.0.7",
-    "babel-preset-flow": "^6.23.0",
     "firebase-tools": "^13.15.1",
     "typescript": "~5.9.2"
   },

@@ -4,19 +4,21 @@
     "appVersionSource": "remote"
   },
   "build": {
-    "development": {
-      "developmentClient": true,
-      "distribution": "internal"
+    "production": {
+      "node": "22.21.1",
+      "npm": "11.6.3",
+            "android": {
+        "buildType": "apk"
+      }
     },
     "preview": {
-      "android": {
-        "buildType": "apk"
-      }
+      "extends": "production",
+      "distribution": "internal"
     },
-    "production": {
-      "android": {
-        "buildType": "apk"
-      }
+    "development": {
+      "extends": "production",
+      "developmentClient": true,
+      "distribution": "internal"
     }
   },
   "submit": {
