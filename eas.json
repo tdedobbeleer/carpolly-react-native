@@ -6,8 +6,7 @@
   "build": {
     "production": {
       "node": "22.21.1",
-      "npm": "11.6.3",
-            "android": {
+      "android": {
         "buildType": "apk"
       }
     },
