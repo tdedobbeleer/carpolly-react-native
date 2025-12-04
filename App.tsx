@@ -1,20 +1,20 @@
+import 'react-native-gesture-handler';
 import React from 'react';
+import { StatusBar, Image, TouchableOpacity, View } from 'react-native';
 import { NavigationContainer, DrawerActions, useNavigation } from '@react-navigation/native';
 import { createDrawerNavigator, DrawerContentScrollView, DrawerItemList, DrawerItem } from '@react-navigation/drawer';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import { StatusBar, Image, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useFonts } from 'expo-font';
 import { Neucha_400Regular } from '@expo-google-fonts/neucha';
 import { CabinSketch_400Regular } from '@expo-google-fonts/cabin-sketch';
 import * as Linking from 'expo-linking';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { dataService } from './services/dataService';
 import { backgroundTaskService } from './services/backgroundTaskService';
-import 'react-native-gesture-handler';
+import CustomText from './components/CustomText';
 import HomeScreen from './screens/HomeScreen';
 import PollyDetailScreen from './screens/PollyDetailScreen';
-import CustomText from './components/CustomText';
+import AboutScreen from './screens/AboutScreen';
+import FAQScreen from './screens/FAQScreen';
 
 const Drawer = createDrawerNavigator();
 const Stack = createNativeStackNavigator();
@@ -55,13 +55,13 @@ function CustomDrawerContent(props: any) {
       <DrawerItemList {...props} />
       <DrawerItem
         label="FAQ"
-        onPress={() => Linking.openURL('https://carpolly.com/faq')}
+        onPress={() => props.navigation.navigate('HomeStack', { screen: 'FAQ' })}
         icon={({ color, size }) => <Ionicons name="help-circle" color={color} size={size} />}
         labelStyle={{ fontFamily: 'Neucha_400Regular' }}
       />
       <DrawerItem
         label="About"
-        onPress={() => Linking.openURL('https://carpolly.com/about')}
+        onPress={() => props.navigation.navigate('HomeStack', { screen: 'About' })}
         icon={({ color, size }) => <Ionicons name="information-circle" color={color} size={size} />}
         labelStyle={{ fontFamily: 'Neucha_400Regular' }}
       />
@@ -104,6 +104,8 @@ function HomeStack() {
         })}
       />
       <Stack.Screen name="PollyDetail" component={PollyDetailScreen} />
+      <Stack.Screen name="About" component={AboutScreen} />
+      <Stack.Screen name="FAQ" component={FAQScreen} />
     </Stack.Navigator>
   );
 }
@@ -143,6 +145,7 @@ export default function App() {
             title: 'Home',
             drawerIcon: ({ color, size }) => <Ionicons name="home" color={color} size={size} />,
             headerShown: false,
+            drawerItemStyle: { display: 'none' },
           }}
         />
       </Drawer.Navigator>

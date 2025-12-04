@@ -1,22 +1,22 @@
 import 'react-native-get-random-values';
 import React, { useState, useEffect } from 'react';
-import { View, TextInput, TouchableOpacity, StyleSheet, ScrollView, Linking, Image } from 'react-native';
+import { View, TextInput, TouchableOpacity, StyleSheet, ScrollView, Image } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
-import Text from '../components/CustomText';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { v4 as uuidv4 } from 'uuid';
 import { dataService } from '../services/dataService';
 import { ValidationService } from '../services/validationService';
-import { errorService } from '../services/errorService';
 import type { Polly } from '../models/polly.model';
 import CustomText from '../components/CustomText';
 
 type RootStackParamList = {
   Home: undefined;
   PollyDetail: { id: string };
+  About: undefined;
+  FAQ: undefined;
 };
 
 export default function HomeScreen() {
@@ -31,17 +31,22 @@ export default function HomeScreen() {
       if (ids) {
         const parsed = JSON.parse(ids);
         setPollyIds(parsed);
-        // Fetch descriptions
-        parsed.forEach((id: string) => {
-          dataService.getPolly(id).then(polly => {
-            if (polly) {
-              setDescriptions(prev => ({ ...prev, [id]: polly.description || 'Unknown' }));
-            }
-          });
-        });
       }
     });
   }, []);
+
+  useFocusEffect(
+    React.useCallback(() => {
+      // Fetch descriptions when screen is focused
+      pollyIds.forEach((id: string) => {
+        dataService.getPolly(id).then(polly => {
+          if (polly) {
+            setDescriptions(prev => ({ ...prev, [id]: polly.description || 'Unknown' }));
+          }
+        });
+      });
+    }, [pollyIds])
+  );
 
   const resetDescriptionError = () => {
     setDescriptionError('');
@@ -78,8 +83,8 @@ export default function HomeScreen() {
     }
   };
 
-  const openFAQ = () => {
-    Linking.openURL('https://carpolly.com/support');
+  const openAbout = () => {
+    navigation.navigate('About');
   };
 
   const savePollyIds = async (ids: string[]) => {
@@ -130,7 +135,7 @@ export default function HomeScreen() {
             <TouchableOpacity style={styles.button} onPress={onSubmit}>
               <CustomText style={styles.buttonText}>Create a Carpolly!</CustomText>
             </TouchableOpacity>
-            <TouchableOpacity onPress={openFAQ}>
+            <TouchableOpacity onPress={openAbout}>
               <CustomText style={styles.link}>What in parrots name is this?!</CustomText>
             </TouchableOpacity>
           </View>
@@ -139,7 +144,7 @@ export default function HomeScreen() {
               <View style={styles.cardHeader}>
                 <CustomText style={styles.label}>Your previous Carpollies</CustomText>
                 <TouchableOpacity onPress={clearAllPollies}>
-                  <CustomText>Clear All <Ionicons name="trash" size={20} color="red" /></CustomText>
+                  <CustomText>Clear All</CustomText>
                 </TouchableOpacity>
               </View>
               {pollyIds.map((id) => (

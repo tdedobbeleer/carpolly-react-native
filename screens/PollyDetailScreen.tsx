@@ -7,6 +7,10 @@ import { Notifications } from 'react-native-notifications';
 import Toast from 'react-native-simple-toast';
 import { backgroundTaskService } from '../services/backgroundTaskService';
 import CustomText from '../components/CustomText';
+import AddDriverModal from '../components/AddDriverModal';
+import EditDriverModal from '../components/EditDriverModal';
+import EditPollyModal from '../components/EditPollyModal';
+import AlertModal from '../components/AlertModal';
 import { useRoute, useNavigation } from '@react-navigation/native';
 import { dataService } from '../services/dataService';
 import { ValidationService } from '../services/validationService';
@@ -26,7 +30,6 @@ export default function PollyDetailScreen() {
   const [showAddConsumerModal, setShowAddConsumerModal] = useState(false);
   const [selectedDriverIndex, setSelectedDriverIndex] = useState(-1);
   const [showEditPollyModal, setShowEditPollyModal] = useState(false);
-  const [editingPollyDescription, setEditingPollyDescription] = useState('');
   const [showEditDriverModal, setShowEditDriverModal] = useState(false);
   const [editingDriver, setEditingDriver] = useState<Driver | null>(null);
   const [expandedComments, setExpandedComments] = useState<{ [key: string]: boolean }>({});
@@ -35,14 +38,11 @@ export default function PollyDetailScreen() {
   const [notificationsEnabled, setNotificationsEnabled] = useState(false);
   const [showNotificationsModal, setShowNotificationsModal] = useState(false);
   const [previousPolly, setPreviousPolly] = useState<Polly | null>(null);
+  const [alertVisible, setAlertVisible] = useState(false);
+  const [alertTitle, setAlertTitle] = useState('');
+  const [alertMessage, setAlertMessage] = useState('');
+  const [alertButtons, setAlertButtons] = useState<any[]>([]);
 
-  // Add Driver Modal state
-  const [driverName, setDriverName] = useState('');
-  const [driverDescription, setDriverDescription] = useState('');
-  const [driverSpots, setDriverSpots] = useState('1');
-  const [driverNameError, setDriverNameError] = useState('');
-  const [driverDescriptionError, setDriverDescriptionError] = useState('');
-  const [driverSpotsError, setDriverSpotsError] = useState('');
 
   // Add Consumer Modal state
   const [consumerName, setConsumerName] = useState('');
@@ -123,46 +123,34 @@ export default function PollyDetailScreen() {
     };
   }, [id, navigation, notificationsEnabled]);
 
-  const resetDriverErrors = () => {
-    setDriverNameError('');
-    setDriverDescriptionError('');
-    setDriverSpotsError('');
-  };
+  // Expand all drivers by default when polly data is loaded
+  useEffect(() => {
+    if (polly?.drivers) {
+      const newExpanded: { [key: string]: boolean } = {};
+      polly.drivers.forEach(driver => {
+        if (driver.id) newExpanded[driver.id] = true;
+      });
+      setExpandedDrivers(newExpanded);
+      setExpandAll(true);
+    }
+  }, [polly?.drivers]);
+
 
   const resetConsumerErrors = () => {
     setConsumerNameError('');
   };
 
-  const handleAddDriver = async () => {
+  const handleAddDriver = async (driver: Driver) => {
     if (!ValidationService.checkRateLimit('createDriver', 5, 60000)) {
       ValidationService.showRateLimitModal('create driver', 5, 60000);
       return;
     }
-
-    const validation = ValidationService.validateDriverForm(driverName, driverDescription, parseInt(driverSpots));
-
-    setDriverNameError(validation.errors.name || '');
-    setDriverDescriptionError(validation.errors.description || '');
-    setDriverSpotsError(validation.errors.spots || '');
-
-    if (!validation.isValid) return;
-
-    const driver: Driver = {
-      name: driverName,
-      description: driverDescription,
-      spots: parseInt(driverSpots),
-      consumers: []
-    };
 
     const result = await dataService.createDriver(id, driver);
     if (result !== null) {
       // Update GUI immediately when driver is successfully added
       setPolly(prev => prev ? { ...prev, drivers: [...(prev.drivers || []), { ...driver, id: result }] } : null);
       setShowAddDriverModal(false);
-      setDriverName('');
-      setDriverDescription('');
-      setDriverSpots('1');
-      resetDriverErrors();
     }
   };
 
@@ -198,43 +186,35 @@ export default function PollyDetailScreen() {
   };
 
   const handleDeleteDriver = async (driverId: string) => {
-    // For destructive actions, we still use Alert for confirmation
-    // but let the dataService handle the error with toast
-    const { Alert } = require('react-native');
-    Alert.alert(
-      'Confirm Removal',
-      'Are you sure you want to remove this driver?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Remove',
-          style: 'destructive',
-          onPress: async () => {
-            await dataService.deleteDriver(id, driverId);
-          }
+    setAlertTitle('Confirm Removal');
+    setAlertMessage('Are you sure you want to remove this driver?');
+    setAlertButtons([
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Remove',
+        style: 'destructive',
+        onPress: async () => {
+          await dataService.deleteDriver(id, driverId);
         }
-      ]
-    );
+      }
+    ]);
+    setAlertVisible(true);
   };
 
   const handleDeleteConsumer = async (driverId: string, consumerId: string) => {
-    // For destructive actions, we still use Alert for confirmation
-    // but let the dataService handle the error with toast
-    const { Alert } = require('react-native');
-    Alert.alert(
-      'Confirm Removal',
-      'Are you sure you want to remove this passenger?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Remove',
-          style: 'destructive',
-          onPress: async () => {
-            await dataService.deleteConsumer(id, driverId, consumerId);
-          }
+    setAlertTitle('Confirm Removal');
+    setAlertMessage('Are you sure you want to remove this passenger?');
+    setAlertButtons([
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Remove',
+        style: 'destructive',
+        onPress: async () => {
+          await dataService.deleteConsumer(id, driverId, consumerId);
         }
-      ]
-    );
+      }
+    ]);
+    setAlertVisible(true);
   };
 
   const openAddConsumerModal = (driverIndex: number) => {
@@ -252,16 +232,9 @@ export default function PollyDetailScreen() {
     }
   };
 
-  const openEditPollyModal = () => {
-    setEditingPollyDescription(polly?.description || '');
-    setShowEditPollyModal(true);
-  };
-
-  const handleEditPolly = async () => {
-    if (polly?.id) {
-      await dataService.updatePolly(polly.id, { description: editingPollyDescription });
-      setPolly(prev => prev ? { ...prev, description: editingPollyDescription } : null);
-    }
+  const handleEditPolly = async (description: string) => {
+    await dataService.updatePolly(id, { description });
+    setPolly(prev => prev ? { ...prev, description } : null);
     setShowEditPollyModal(false);
   };
 
@@ -270,14 +243,15 @@ export default function PollyDetailScreen() {
     setShowEditDriverModal(true);
   };
 
-  const handleEditDriver = async () => {
-    if (editingDriver && polly?.id) {
-      await dataService.updateDriver(polly.id, editingDriver.id!, {
-        name: editingDriver.name,
-        description: editingDriver.description
-      });
-      setPolly(prev => prev ? { ...prev, drivers: (prev.drivers || []).map(d => d.id === editingDriver.id ? { ...d, name: editingDriver.name, description: editingDriver.description } : d) } : null);
-    }
+  const handleEditDriver = async (updatedDriver: Driver) => {
+    if (!editingDriver) return;
+
+    await dataService.updateDriver(id, editingDriver.id!, {
+      name: updatedDriver.name,
+      description: updatedDriver.description,
+      spots: updatedDriver.spots
+    });
+    setPolly(prev => prev ? { ...prev, drivers: (prev.drivers || []).map(d => d.id === editingDriver.id ? { ...d, name: updatedDriver.name, description: updatedDriver.description, spots: updatedDriver.spots } : d) } : null);
     setShowEditDriverModal(false);
   };
 
@@ -350,21 +324,19 @@ export default function PollyDetailScreen() {
     // For now, we'll assume the app has proper permissions set up
     try {
       // Show a simple info message about permissions
-      const { Alert } = require('react-native');
-      Alert.alert(
-        'Notification Permissions',
-        'This app will request notification permissions when you enable notifications. Please make sure to allow them when prompted.',
-        [
-          { text: 'Cancel', style: 'cancel' },
-          { 
-            text: 'Continue', 
-            onPress: () => {
-              // In a real implementation, this would trigger the actual permission request
-              // For this demo, we'll just assume permissions are granted
-            }
+      setAlertTitle('Notification Permissions');
+      setAlertMessage('This app will request notification permissions when you enable notifications. Please make sure to allow them when prompted.');
+      setAlertButtons([
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Continue',
+          onPress: () => {
+            // In a real implementation, this would trigger the actual permission request
+            // For this demo, we'll just assume permissions are granted
           }
-        ]
-      );
+        }
+      ]);
+      setAlertVisible(true);
       return true;
     } catch (error) {
       console.log('Error handling notification permissions:', error);
@@ -418,7 +390,13 @@ export default function PollyDetailScreen() {
   if (!polly) {
     return (
       <View style={styles.errorContainer}>
-        <CustomText>Polly not found!</CustomText>
+        <View style={styles.errorCard}>
+          <CustomText style={styles.notFoundText}>Polly not found!</CustomText>
+          <CustomText style={styles.errorSubtext}>The polly you're looking for doesn't exist or has been removed. How sad <Ionicons name="sad-outline"></Ionicons></CustomText>
+          <TouchableOpacity style={styles.goBackButton} onPress={() => navigation.goBack()}>
+            <CustomText style={styles.goBackText}>Go Back</CustomText>
+          </TouchableOpacity>
+        </View>
       </View>
     );
   }
@@ -431,12 +409,16 @@ export default function PollyDetailScreen() {
       style={styles.container}
     >
       <FlatList
-        data={polly.drivers}
+        data={polly.drivers?.sort((a, b) => {
+          const aAvailable = (a.spots || 0) - (a.consumers?.length || 0);
+          const bAvailable = (b.spots || 0) - (b.consumers?.length || 0);
+          return bAvailable - aAvailable; // Higher available spots first
+        })}
         keyExtractor={(item, index) => item.id || index.toString()}
         contentContainerStyle={styles.content}
         ListHeaderComponent={
           <>
-            <TouchableOpacity onPress={openEditPollyModal} style={styles.titleContainer}>
+            <TouchableOpacity onPress={() => setShowEditPollyModal(true)} style={styles.titleContainer}>
               <CustomText type="h1" style={styles.title}>{polly.description}</CustomText>
             </TouchableOpacity>
 
@@ -463,34 +445,35 @@ export default function PollyDetailScreen() {
           </>
         }
         renderItem={({ item, index }) => (
-          <TouchableOpacity style={styles.driverCard} onPress={() => openEditDriverModal(item)}>
-            <View style={styles.driverHeader}>
-              <TouchableOpacity onPress={() => openEditDriverModal(item)} style={styles.nameContainer}>
-                <CustomText type="h3" style={styles.driverName}>{item.name}</CustomText>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.progressContainer} onPress={() => toggleDriverExpansion(item.id!)}>
-                <Progress.Circle
-                  size={40}
-                  progress={(item.consumers?.length || 0) / (item.spots || 1)}
-                  showsText
-                  formatText={() => `${item.consumers?.length || 0}/${item.spots || 0}`}
-                  textStyle={{ fontSize: 12 }}
-                  color="#007bff"
-                  unfilledColor="#e0e0e0"
-                  borderWidth={0}
-                />
-                <Ionicons
-                  name={expandedDrivers[item.id!] ? "chevron-up" : "chevron-down"}
-                  size={20}
-                  color="black"
-                  style={styles.arrowIcon}
-                />
-              </TouchableOpacity>
-            </View>
+          <View style={styles.driverCard}>
+            <TouchableOpacity onPress={() => openEditDriverModal(item)}>
+              <View style={styles.driverHeader}>
+                <View style={styles.nameContainer}>
+                  <CustomText type="h3" style={styles.driverName}>{item.name}</CustomText>
+                </View>
+                <TouchableOpacity style={styles.progressContainer} onPress={() => toggleDriverExpansion(item.id!)}>
+                  <Progress.Circle
+                    size={40}
+                    progress={(item.consumers?.length || 0) / (item.spots || 1)}
+                    showsText
+                    formatText={() => `${item.consumers?.length || 0}/${item.spots || 0}`}
+                    textStyle={{ fontSize: 12 }}
+                    color="#007bff"
+                    unfilledColor="#e0e0e0"
+                    borderWidth={0}
+                  />
+                  <Ionicons
+                    name={expandedDrivers[item.id!] ? "chevron-up" : "chevron-down"}
+                    size={20}
+                    color="black"
+                    style={styles.arrowIcon}
+                  />
+                </TouchableOpacity>
+              </View>
+            </TouchableOpacity>
+            <CustomText style={styles.driverDescription}>Meeting details: {item.description}</CustomText>
             {expandedDrivers[item.id!] && (
               <>
-                <CustomText style={styles.driverDescription}>Meeting details: {item.description}</CustomText>
-
                 <View style={styles.consumersList}>
                   {item.consumers && item.consumers.length > 0 ? (
                     item.consumers.map((consumer, consumerIndex) => (
@@ -538,71 +521,20 @@ export default function PollyDetailScreen() {
                     onPress={() => item.id && handleDeleteDriver(item.id)}
                     style={styles.deleteDriverButton}
                   >
-                    <Ionicons name="trash" size={16} color="black" />
+                    <CustomText style={styles.deleteDriverText}>Remove driver</CustomText>
                   </TouchableOpacity>
                 </View>
               </>
             )}
-          </TouchableOpacity>
+          </View>
         )}
       />
 
-      {/* Add Driver Modal */}
-      <Modal visible={showAddDriverModal} animationType="slide" transparent>
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <CustomText type="h2" style={styles.modalTitle}>Add Driver</CustomText>
-
-            <CustomText style={styles.label}>Who will drive?</CustomText>
-            <TextInput
-              style={[styles.input, driverNameError ? styles.inputError : null]}
-              value={driverName}
-              onChangeText={(text) => {
-                setDriverName(text);
-                resetDriverErrors();
-              }}
-              placeholder="Driver name"
-              maxLength={60}
-            />
-            {driverNameError ? <CustomText style={styles.errorText}>{driverNameError}</CustomText> : null}
-
-            <CustomText style={styles.label}>Where will you wait with your car? At what Time?</CustomText>
-            <TextInput
-              style={[styles.input, driverDescriptionError ? styles.inputError : null]}
-              value={driverDescription}
-              onChangeText={(text) => {
-                setDriverDescription(text);
-                resetDriverErrors();
-              }}
-              placeholder="Meeting details"
-              maxLength={255}
-            />
-            {driverDescriptionError ? <CustomText style={styles.errorText}>{driverDescriptionError}</CustomText> : null}
-
-            <CustomText style={styles.label}>Available spots?</CustomText>
-            <TextInput
-              style={[styles.input, driverSpotsError ? styles.inputError : null]}
-              value={driverSpots}
-              onChangeText={(text) => {
-                setDriverSpots(text.replace(/[^0-9]/g, ''));
-                resetDriverErrors();
-              }}
-              keyboardType="numeric"
-              placeholder="Number of spots"
-            />
-            {driverSpotsError ? <CustomText style={styles.errorText}>{driverSpotsError}</CustomText> : null}
-
-            <View style={styles.modalActions}>
-              <TouchableOpacity style={styles.cancelButton} onPress={() => setShowAddDriverModal(false)}>
-                <CustomText>Cancel</CustomText>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.submitButton} onPress={handleAddDriver}>
-                <CustomText style={styles.submitText}>Add Driver</CustomText>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
+      <AddDriverModal
+        visible={showAddDriverModal}
+        onClose={() => setShowAddDriverModal(false)}
+        onSubmit={handleAddDriver}
+      />
 
       {/* Add Consumer Modal */}
       <Modal visible={showAddConsumerModal} animationType="slide" transparent>
@@ -646,68 +578,19 @@ export default function PollyDetailScreen() {
         </View>
       </Modal>
 
-      {/* Edit Polly Modal */}
-      <Modal visible={showEditPollyModal} animationType="slide" transparent>
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <CustomText type="h2" style={styles.modalTitle}>Edit Polly</CustomText>
+      <EditPollyModal
+        visible={showEditPollyModal}
+        description={polly?.description || ''}
+        onClose={() => setShowEditPollyModal(false)}
+        onSubmit={handleEditPolly}
+      />
 
-            <CustomText style={styles.label}>Description</CustomText>
-            <TextInput
-              style={styles.input}
-              value={editingPollyDescription}
-              onChangeText={setEditingPollyDescription}
-              placeholder="Polly description"
-              maxLength={60}
-            />
-
-            <View style={styles.modalActions}>
-              <TouchableOpacity style={styles.cancelButton} onPress={() => setShowEditPollyModal(false)}>
-                <CustomText>Cancel</CustomText>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.submitButton} onPress={handleEditPolly}>
-                <CustomText style={styles.submitText}>Save</CustomText>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
-
-      {/* Edit Driver Modal */}
-      <Modal visible={showEditDriverModal} animationType="slide" transparent>
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <CustomText type="h2" style={styles.modalTitle}>Edit Driver</CustomText>
-
-            <CustomText style={styles.label}>Who will drive?</CustomText>
-            <TextInput
-              style={styles.input}
-              value={editingDriver?.name || ''}
-              onChangeText={(text) => setEditingDriver(prev => prev ? { ...prev, name: text } : null)}
-              placeholder="Driver name"
-              maxLength={60}
-            />
-
-            <CustomText style={styles.label}>Where will you wait with your car? At what Time?</CustomText>
-            <TextInput
-              style={styles.input}
-              value={editingDriver?.description || ''}
-              onChangeText={(text) => setEditingDriver(prev => prev ? { ...prev, description: text } : null)}
-              placeholder="Meeting details"
-              maxLength={255}
-            />
-
-            <View style={styles.modalActions}>
-              <TouchableOpacity style={styles.cancelButton} onPress={() => setShowEditDriverModal(false)}>
-                <CustomText>Cancel</CustomText>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.submitButton} onPress={handleEditDriver}>
-                <CustomText style={styles.submitText}>Save</CustomText>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
+      <EditDriverModal
+        visible={showEditDriverModal}
+        driver={editingDriver}
+        onClose={() => setShowEditDriverModal(false)}
+        onSubmit={handleEditDriver}
+      />
 
       {/* Notifications Modal */}
       <Modal visible={showNotificationsModal} animationType="slide" transparent>
@@ -749,7 +632,15 @@ export default function PollyDetailScreen() {
           </View>
         </View>
       </Modal>
-  </LinearGradient>
+
+      <AlertModal
+        visible={alertVisible}
+        title={alertTitle}
+        message={alertMessage}
+        buttons={alertButtons}
+        onClose={() => setAlertVisible(false)}
+      />
+    </LinearGradient>
   );
 }
 
@@ -778,6 +669,43 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    padding: 20,
+  },
+  errorCard: {
+    backgroundColor: '#f8f9fa',
+    padding: 30,
+    borderRadius: 8,
+    alignItems: 'center',
+    width: '90%',
+    maxWidth: 400,
+  },
+  notFoundText: {
+    fontSize: 24,
+    color: '#000',
+    marginBottom: 10,
+    textAlign: 'center',
+  },
+  errorSubtext: {
+    fontSize: 16,
+    color: '#666',
+    marginBottom: 30,
+    textAlign: 'center',
+  },
+  goBackButton: {
+    backgroundColor: '#fff',
+    padding: 15,
+    borderRadius: 8,
+    borderWidth: 2,
+    borderColor: '#000',
+    shadowColor: '#000',
+    shadowOffset: { width: 2, height: 2 },
+    shadowOpacity: 0.5,
+    shadowRadius: 0,
+    elevation: 5,
+  },
+  goBackText: {
+    color: '#000',
+    fontSize: 16,
   },
   shareSection: {
     alignItems: 'center',
@@ -924,7 +852,20 @@ const styles = StyleSheet.create({
     backgroundColor: '#6c757d',
   },
   deleteDriverButton: {
+    backgroundColor: '#fff',
     padding: 10,
+    borderRadius: 8,
+    borderWidth: 2,
+    borderColor: '#dc3545',
+    shadowColor: '#000',
+    shadowOffset: { width: 2, height: 2 },
+    shadowOpacity: 0.5,
+    shadowRadius: 0,
+    elevation: 5,
+  },
+  deleteDriverText: {
+    color: '#dc3545',
+    fontSize: 14,
   },
   deleteButton: {
     padding: 5,
