@@ -77,7 +77,6 @@ export default function HomeScreen() {
 
     const result = await dataService.createPolly(id, polly);
     if (result !== null) {
-      await savePollyIds([...pollyIds, id]);
       setDescriptions(prev => ({ ...prev, [id]: description }));
       navigation.navigate('PollyDetail', { id });
     }

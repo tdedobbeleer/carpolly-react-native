@@ -121,6 +121,7 @@ export default function App() {
     backgroundTaskService.init();
   }, []);
 
+
   if (!fontsLoaded) {
     return null;
   }

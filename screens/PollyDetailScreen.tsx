@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { View, TouchableOpacity, StyleSheet, ScrollView, Modal, TextInput, FlatList, Share, Image, Switch, Platform } from 'react-native';
+import { View, TouchableOpacity, StyleSheet, Modal, TextInput, FlatList, Share, Image, Switch } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import * as Progress from 'react-native-progress';
 import { Notifications } from 'react-native-notifications';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import Toast from 'react-native-simple-toast';
 import { backgroundTaskService } from '../services/backgroundTaskService';
 import CustomText from '../components/CustomText';
@@ -14,14 +15,21 @@ import AlertModal from '../components/AlertModal';
 import { useRoute, useNavigation } from '@react-navigation/native';
 import { dataService } from '../services/dataService';
 import { ValidationService } from '../services/validationService';
-import { errorService } from '../services/errorService';
 import type { Polly } from '../models/polly.model';
 import type { Driver } from '../models/driver.model';
 import type { Consumer } from '../models/consumer.model';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+
+type RootStackParamList = {
+  Home: undefined;
+  PollyDetail: { id: string };
+  About: undefined;
+  FAQ: undefined;
+};
 
 export default function PollyDetailScreen() {
   const route = useRoute();
-  const navigation = useNavigation();
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { id } = route.params as { id: string };
 
   const [polly, setPolly] = useState<Polly | null>(null);
@@ -93,7 +101,7 @@ export default function PollyDetailScreen() {
       headerTitle: () => <Image source={require('../assets/logo.png')} style={{ width: 80, height: 80, resizeMode: 'contain' }} />,
       headerTitleAlign: 'center',
       headerLeft: () => (
-        <TouchableOpacity onPress={() => navigation.goBack()} style={{ marginLeft: 10 }}>
+        <TouchableOpacity onPress={() => navigation.navigate('Home')} style={{ marginLeft: 10 }}>
           <Ionicons name="arrow-back" size={24} color="black" />
         </TouchableOpacity>
       ),
@@ -134,6 +142,28 @@ export default function PollyDetailScreen() {
       setExpandAll(true);
     }
   }, [polly?.drivers]);
+
+  // Add polly ID to previous pollys when screen loads
+  useEffect(() => {
+    if (polly && id) {
+      const addToPreviousPollys = async () => {
+        try {
+          const storedIds = await AsyncStorage.getItem('pollyIds');
+          let pollyIds: string[] = [];
+          if (storedIds) {
+            pollyIds = JSON.parse(storedIds);
+          }
+          if (!pollyIds.includes(id)) {
+            pollyIds.push(id);
+            await AsyncStorage.setItem('pollyIds', JSON.stringify(pollyIds));
+          }
+        } catch (error) {
+          console.error('Error adding polly to previous list:', error);
+        }
+      };
+      addToPreviousPollys();
+    }
+  }, [polly, id]);
 
 
   const resetConsumerErrors = () => {
@@ -393,7 +423,7 @@ export default function PollyDetailScreen() {
         <View style={styles.errorCard}>
           <CustomText style={styles.notFoundText}>Polly not found!</CustomText>
           <CustomText style={styles.errorSubtext}>The polly you're looking for doesn't exist or has been removed. How sad <Ionicons name="sad-outline"></Ionicons></CustomText>
-          <TouchableOpacity style={styles.goBackButton} onPress={() => navigation.goBack()}>
+          <TouchableOpacity style={styles.goBackButton} onPress={() => navigation.navigate('Home')}>
             <CustomText style={styles.goBackText}>Go Back</CustomText>
           </TouchableOpacity>
         </View>
