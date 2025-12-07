@@ -46,6 +46,9 @@ export default function PollyDetailScreen() {
   const [expandAll, setExpandAll] = useState(false);
   const [notificationsEnabled, setNotificationsEnabled] = useState(false);
   const [showNotificationsModal, setShowNotificationsModal] = useState(false);
+  const [showDriverNotificationsModal, setShowDriverNotificationsModal] = useState(false);
+  const [selectedDriverForNotifications, setSelectedDriverForNotifications] = useState<Driver | null>(null);
+  const [driverNotificationsEnabled, setDriverNotificationsEnabled] = useState<{ [driverId: string]: boolean }>({});
   const [previousPolly, setPreviousPolly] = useState<Polly | null>(null);
   const [alertVisible, setAlertVisible] = useState(false);
   const [alertTitle, setAlertTitle] = useState('');
@@ -133,13 +136,18 @@ export default function PollyDetailScreen() {
   useEffect(() => {
     if (polly?.drivers) {
       const newExpanded: { [key: string]: boolean } = {};
+      const newDriverNotifications: { [driverId: string]: boolean } = {};
       polly.drivers.forEach(driver => {
-        if (driver.id) newExpanded[driver.id] = true;
+        if (driver.id) {
+          newExpanded[driver.id] = true;
+          newDriverNotifications[driver.id] = backgroundTaskService.isMonitoringDriver(id, driver.id);
+        }
       });
       setExpandedDrivers(newExpanded);
+      setDriverNotificationsEnabled(newDriverNotifications);
       setExpandAll(true);
     }
-  }, [polly?.drivers]);
+  }, [polly?.drivers, id]);
 
   // Add polly ID to previous pollys when screen loads (only once per polly ID)
   const processedPollyIds = React.useRef<Set<string>>(new Set());
@@ -427,6 +435,33 @@ export default function PollyDetailScreen() {
     }
   };
 
+  const handleToggleDriverNotifications = async (driverId: string, value: boolean) => {
+    if (value) {
+      // User wants to enable driver notifications, check permissions first
+      const hasPermission = await requestNotificationPermission();
+      if (hasPermission) {
+        try {
+          await backgroundTaskService.startMonitoringDriver(id, driverId);
+          setDriverNotificationsEnabled(prev => ({ ...prev, [driverId]: true }));
+          Toast.show('Driver notifications enabled!', Toast.SHORT);
+        } catch (error) {
+          console.error('Error enabling driver notifications:', error);
+          Toast.show('Failed to enable driver notifications.', Toast.SHORT);
+        }
+      }
+    } else {
+      // User wants to disable driver notifications
+      try {
+        await backgroundTaskService.stopMonitoringDriver(id, driverId);
+        setDriverNotificationsEnabled(prev => ({ ...prev, [driverId]: false }));
+        Toast.show('Driver notifications disabled.', Toast.SHORT);
+      } catch (error) {
+        console.error('Error disabling driver notifications:', error);
+        Toast.show('Failed to disable driver notifications.', Toast.SHORT);
+      }
+    }
+  };
+
   if (isLoading) {
     return (
       <View style={styles.loadingContainer}>
@@ -499,24 +534,40 @@ export default function PollyDetailScreen() {
                 <View style={styles.nameContainer}>
                   <CustomText type="h3" style={styles.driverName}>{item.name}</CustomText>
                 </View>
-                <TouchableOpacity style={styles.progressContainer} onPress={() => toggleDriverExpansion(item.id!)}>
-                  <Progress.Circle
-                    size={40}
-                    progress={(item.consumers?.length || 0) / (item.spots || 1)}
-                    showsText
-                    formatText={() => `${item.consumers?.length || 0}/${item.spots || 0}`}
-                    textStyle={{ fontSize: 12 }}
-                    color="#007bff"
-                    unfilledColor="#e0e0e0"
-                    borderWidth={0}
-                  />
-                  <Ionicons
-                    name={expandedDrivers[item.id!] ? "chevron-up" : "chevron-down"}
-                    size={20}
-                    color="black"
-                    style={styles.arrowIcon}
-                  />
-                </TouchableOpacity>
+                <View style={styles.headerRight}>
+                  {!notificationsEnabled && (
+                    <TouchableOpacity
+                      style={styles.driverNotificationButton}
+                      onPress={() => {
+                        setSelectedDriverForNotifications(item);
+                        setShowDriverNotificationsModal(true);
+                      }}
+                    >
+                      <Ionicons name="notifications" size={20} color="black" />
+                      {driverNotificationsEnabled[item.id!] && (
+                        <View style={styles.driverNotificationBadge} />
+                      )}
+                    </TouchableOpacity>
+                  )}
+                  <TouchableOpacity style={styles.progressContainer} onPress={() => toggleDriverExpansion(item.id!)}>
+                    <Progress.Circle
+                      size={40}
+                      progress={(item.consumers?.length || 0) / (item.spots || 1)}
+                      showsText
+                      formatText={() => `${item.consumers?.length || 0}/${item.spots || 0}`}
+                      textStyle={{ fontSize: 12 }}
+                      color="#007bff"
+                      unfilledColor="#e0e0e0"
+                      borderWidth={0}
+                    />
+                    <Ionicons
+                      name={expandedDrivers[item.id!] ? "chevron-up" : "chevron-down"}
+                      size={20}
+                      color="black"
+                      style={styles.arrowIcon}
+                    />
+                  </TouchableOpacity>
+                </View>
               </View>
             </TouchableOpacity>
             <CustomText style={styles.driverDescription}>Meeting details: {item.description}</CustomText>
@@ -659,22 +710,78 @@ export default function PollyDetailScreen() {
             <View style={styles.modalActions}>
               {!notificationsEnabled ? (
                 <TouchableOpacity
-                  style={styles.enableNotificationsButton}
+                  style={styles.enableDriverNotificationsButton}
                   onPress={() => handleToggleNotifications(true)}
                 >
-                  <CustomText style={styles.enableNotificationsText}>Enable</CustomText>
+                  <CustomText style={styles.enableDriverNotificationsText}>Enable</CustomText>
                 </TouchableOpacity>
               ) : (
                 <TouchableOpacity
-                  style={styles.disableNotificationsButton}
+                  style={styles.disableDriverNotificationsButton}
                   onPress={() => handleToggleNotifications(false)}
                 >
-                  <CustomText style={styles.disableNotificationsText}>Disable</CustomText>
+                  <CustomText style={styles.disableDriverNotificationsText}>Disable</CustomText>
                 </TouchableOpacity>
               )}
               <TouchableOpacity
                 style={styles.cancelButton}
                 onPress={() => setShowNotificationsModal(false)}
+              >
+                <CustomText>Close</CustomText>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Driver Notifications Modal */}
+      <Modal visible={showDriverNotificationsModal} animationType="slide" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <CustomText type="h2" style={styles.modalTitle}>
+              <Ionicons name="notifications" size={24} color="#000" /> Driver Notifications
+            </CustomText>
+
+            {selectedDriverForNotifications && (
+              <View style={styles.driverNotificationInfo}>
+                <CustomText style={styles.driverNotificationDriverName}>
+                  {selectedDriverForNotifications.name}
+                </CustomText>
+                <CustomText style={styles.notificationsDescription}>
+                  Get notified when:
+                </CustomText>
+                <View style={styles.notificationsList}>
+                  <CustomText style={styles.notificationItem}>• New passengers join or leave this driver's ride</CustomText>
+                  <CustomText style={styles.notificationItem}>• This driver leaves the polly</CustomText>
+                </View>
+              </View>
+            )}
+
+            <View style={styles.modalActions}>
+              {selectedDriverForNotifications && !driverNotificationsEnabled[selectedDriverForNotifications.id!] ? (
+                <TouchableOpacity
+                  style={styles.enableDriverNotificationsButton}
+                  onPress={() => {
+                    handleToggleDriverNotifications(selectedDriverForNotifications.id!, true);
+                    setShowDriverNotificationsModal(false);
+                  }}
+                >
+                  <CustomText style={styles.enableDriverNotificationsText}>Enable</CustomText>
+                </TouchableOpacity>
+              ) : (
+                <TouchableOpacity
+                  style={styles.disableDriverNotificationsButton}
+                  onPress={() => {
+                    handleToggleDriverNotifications(selectedDriverForNotifications!.id!, false);
+                    setShowDriverNotificationsModal(false);
+                  }}
+                >
+                  <CustomText style={styles.disableDriverNotificationsText}>Disable</CustomText>
+                </TouchableOpacity>
+              )}
+              <TouchableOpacity
+                style={styles.cancelButton}
+                onPress={() => setShowDriverNotificationsModal(false)}
               >
                 <CustomText>Close</CustomText>
               </TouchableOpacity>
@@ -834,6 +941,26 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 10,
+  },
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  driverNotificationButton: {
+    position: 'relative',
+    padding: 5,
+    marginRight: 10,
+  },
+  driverNotificationBadge: {
+    position: 'absolute',
+    top: 2,
+    right: 2,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#28a745',
+    borderWidth: 1,
+    borderColor: '#fff',
   },
   nameContainer: {
     flex: 1,
@@ -1078,6 +1205,54 @@ const styles = StyleSheet.create({
     elevation: 5,
   },
   disableNotificationsText: {
+    color: '#fff',
+    fontSize: 16,
+  },
+  driverNotificationInfo: {
+    marginBottom: 20,
+  },
+  driverNotificationDriverName: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginBottom: 10,
+    textAlign: 'center',
+    color: '#000',
+  },
+  enableDriverNotificationsButton: {
+    backgroundColor: '#28a745',
+    padding: 12,
+    borderRadius: 8,
+    borderWidth: 2,
+    borderColor: '#28a745',
+    flex: 1,
+    marginRight: 10,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 2, height: 2 },
+    shadowOpacity: 0.5,
+    shadowRadius: 0,
+    elevation: 5,
+  },
+  enableDriverNotificationsText: {
+    color: '#fff',
+    fontSize: 16,
+  },
+  disableDriverNotificationsButton: {
+    backgroundColor: '#dc3545',
+    padding: 12,
+    borderRadius: 8,
+    borderWidth: 2,
+    borderColor: '#dc3545',
+    flex: 1,
+    marginRight: 10,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 2, height: 2 },
+    shadowOpacity: 0.5,
+    shadowRadius: 0,
+    elevation: 5,
+  },
+  disableDriverNotificationsText: {
     color: '#fff',
     fontSize: 16,
   },
