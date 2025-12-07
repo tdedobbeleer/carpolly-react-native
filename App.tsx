@@ -10,24 +10,7 @@ import { Neucha_400Regular } from '@expo-google-fonts/neucha';
 import { CabinSketch_400Regular } from '@expo-google-fonts/cabin-sketch';
 import * as Linking from 'expo-linking';
 import { backgroundTaskService } from './services/backgroundTaskService';
-import { initializeApp } from 'firebase/app';
-import { getFirestore } from 'firebase/firestore';
-
-// Initialize Firebase explicitly
-const firebaseConfig = {
-  apiKey: "AIzaSyC4yG_GAL-aYJ-OVqC-yDssMfyDGoWdaUQ",
-  authDomain: "your-prod-project.firebaseapp.com",
-  projectId: "carpolly-4fe11",
-  storageBucket: "your-prod-project.appspot.com",
-  messagingSenderId: "611172017575",
-  appId: "1:611172017575:web:f0b52a8ace683ec19f8282"
-};
-
-try {
-  initializeApp(firebaseConfig);
-} catch (error) {
-  // Firebase already initialized
-}
+// React Native Firebase initializes automatically
 import CustomText from './components/CustomText';
 import HomeScreen from './screens/HomeScreen';
 import PollyDetailScreen from './screens/PollyDetailScreen';

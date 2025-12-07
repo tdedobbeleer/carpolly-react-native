@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "611172017575",
+    "project_id": "carpolly-4fe11",
+    "storage_bucket": "carpolly-4fe11.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:611172017575:android:04cd3d02385cce039f8282",
+        "android_client_info": {
+          "package_name": "com.carpolly.reactnative"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "611172017575-dl4hom190j3soqp8qk9huvk3ailuljln.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDEjM3DI1vaL5l1gUDTmlsnkF-pWtCsajI"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "611172017575-dl4hom190j3soqp8qk9huvk3ailuljln.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

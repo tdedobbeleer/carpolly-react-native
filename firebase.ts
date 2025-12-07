@@ -1,26 +1,22 @@
-import { initializeApp } from 'firebase/app'
-import { getFirestore, connectFirestoreEmulator } from 'firebase/firestore'
+// Firebase configuration for React Native
+// For Expo managed apps, RN Firebase requires native config files
+// For development, we provide fallback defaults
 
-const firebaseConfig = {
-  apiKey: "AIzaSyC4yG_GAL-aYJ-OVqC-yDssMfyDGoWdaUQ",
-  authDomain: "carpolly-4fe11.firebaseapp.com",
-  projectId: "carpolly-4fe11",
-  storageBucket: "carpolly-4fe11.appspot.com",
-  messagingSenderId: "611172017575",
-  appId: "1:611172017575:web:f0b52a8ace683ec19f8282"
+import firestore from '@react-native-firebase/firestore';
+
+// RN Firebase automatically initializes when native config files are present
+// For development without config files, we provide helpful error messages
+let db: any = null;
+
+try {
+  db = firestore();
+  console.log('Firebase initialized successfully');
+} catch (error) {
+  console.error('Firebase initialization failed. Make sure you have the config files:');
+  console.error('- Android: google-services.json in android/app/');
+  console.error('- iOS: GoogleService-Info.plist in ios/');
+  console.error('For Expo managed projects, place config files in the root directory for EAS Build');
+  throw error;
 }
 
-const app = initializeApp(firebaseConfig)
-
-export const db = getFirestore(app)
-
-// Connect to Firestore emulator in development
-/**
-if (__DEV__) {
-  try {
-    connectFirestoreEmulator(db, '10.0.2.2', 8080)
-  } catch (error) {
-    console.log('Firestore emulator already connected')
-  }
-}
-  **/
+export { db };

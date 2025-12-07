@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { View, TouchableOpacity, StyleSheet, Modal, TextInput, FlatList, Share, Image, Switch } from 'react-native';
+import { View, TouchableOpacity, StyleSheet, Modal, TextInput, FlatList, Share, Image, Platform } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import * as Progress from 'react-native-progress';
 import { Notifications } from 'react-native-notifications';
+import * as NotificationsExpo from 'expo-notifications';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Toast from 'react-native-simple-toast';
 import { backgroundTaskService } from '../services/backgroundTaskService';
@@ -95,9 +96,6 @@ export default function PollyDetailScreen() {
 
     navigation.setOptions({
       title: '',
-      headerStyle: {
-        height: 71,
-      },
       headerTitle: () => <Image source={require('../assets/logo.png')} style={{ width: 80, height: 80, resizeMode: 'contain' }} />,
       headerTitleAlign: 'center',
       headerLeft: () => (
@@ -143,9 +141,12 @@ export default function PollyDetailScreen() {
     }
   }, [polly?.drivers]);
 
-  // Add polly ID to previous pollys when screen loads
+  // Add polly ID to previous pollys when screen loads (only once per polly ID)
+  const processedPollyIds = React.useRef<Set<string>>(new Set());
+
   useEffect(() => {
-    if (polly && id) {
+    if (id && !processedPollyIds.current.has(id)) {
+      processedPollyIds.current.add(id);
       const addToPreviousPollys = async () => {
         try {
           const storedIds = await AsyncStorage.getItem('pollyIds');
@@ -153,17 +154,22 @@ export default function PollyDetailScreen() {
           if (storedIds) {
             pollyIds = JSON.parse(storedIds);
           }
+          // Remove any existing duplicates first
+          pollyIds = [...new Set(pollyIds)];
           if (!pollyIds.includes(id)) {
             pollyIds.push(id);
+            console.log('[PollyDetailScreen] Adding polly to previous list:', id, '- Total pollys:', pollyIds.length);
             await AsyncStorage.setItem('pollyIds', JSON.stringify(pollyIds));
+          } else {
+            console.log('[PollyDetailScreen] Polly already in list:', id);
           }
         } catch (error) {
-          console.error('Error adding polly to previous list:', error);
+          console.error('[PollyDetailScreen] Error adding polly to previous list:', error);
         }
       };
       addToPreviousPollys();
     }
-  }, [polly, id]);
+  }, [id]);
 
 
   const resetConsumerErrors = () => {
@@ -350,27 +356,39 @@ export default function PollyDetailScreen() {
   };
 
   const requestNotificationPermission = async () => {
-    // Simple permission check - in a real app you'd implement proper platform-specific checks
-    // For now, we'll assume the app has proper permissions set up
     try {
-      // Show a simple info message about permissions
-      setAlertTitle('Notification Permissions');
-      setAlertMessage('This app will request notification permissions when you enable notifications. Please make sure to allow them when prompted.');
-      setAlertButtons([
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Continue',
-          onPress: () => {
-            // In a real implementation, this would trigger the actual permission request
-            // For this demo, we'll just assume permissions are granted
+      // Request notification permissions using Expo's API
+      const { status: existingStatus } = await NotificationsExpo.getPermissionsAsync();
+      let finalStatus = existingStatus;
+
+      if (existingStatus !== 'granted') {
+        const { status } = await NotificationsExpo.requestPermissionsAsync();
+        finalStatus = status;
+      }
+
+      if (finalStatus !== 'granted') {
+        // Show alert explaining that permissions are needed
+        setAlertTitle('Notification Permissions Required');
+        setAlertMessage('To receive updates about polly changes, please enable notifications in your device settings for this app.');
+        setAlertButtons([
+          {
+            text: 'OK',
+            style: 'default'
           }
-        }
-      ]);
-      setAlertVisible(true);
+        ]);
+        setAlertVisible(true);
+        return false;
+      }
+
       return true;
     } catch (error) {
-      console.log('Error handling notification permissions:', error);
-      return true;
+      console.log('Error requesting notification permissions:', error);
+      // Show error message
+      setAlertTitle('Permission Error');
+      setAlertMessage('There was an error requesting notification permissions. Please try again or check your device settings.');
+      setAlertButtons([{ text: 'OK', style: 'default' }]);
+      setAlertVisible(true);
+      return false;
     }
   };
 
@@ -638,22 +656,24 @@ export default function PollyDetailScreen() {
               </View>
             </View>
 
-            <View style={styles.notificationsToggleContainer}>
-              <CustomText style={styles.toggleLabel}>
-                Enable notifications about drivers and passengers
-              </CustomText>
-              <Switch
-                trackColor={{ false: '#767577', true: '#81b0ff' }}
-                thumbColor={notificationsEnabled ? '#f5dd4b' : '#f4f3f4'}
-                onValueChange={handleToggleNotifications}
-                value={notificationsEnabled}
-                style={styles.switch}
-              />
-            </View>
-
             <View style={styles.modalActions}>
-              <TouchableOpacity 
-                style={styles.cancelButton} 
+              {!notificationsEnabled ? (
+                <TouchableOpacity
+                  style={styles.enableNotificationsButton}
+                  onPress={() => handleToggleNotifications(true)}
+                >
+                  <CustomText style={styles.enableNotificationsText}>Enable</CustomText>
+                </TouchableOpacity>
+              ) : (
+                <TouchableOpacity
+                  style={styles.disableNotificationsButton}
+                  onPress={() => handleToggleNotifications(false)}
+                >
+                  <CustomText style={styles.disableNotificationsText}>Disable</CustomText>
+                </TouchableOpacity>
+              )}
+              <TouchableOpacity
+                style={styles.cancelButton}
                 onPress={() => setShowNotificationsModal(false)}
               >
                 <CustomText>Close</CustomText>
@@ -1008,9 +1028,6 @@ const styles = StyleSheet.create({
     flex: 1,
     marginRight: 10,
   },
-  switch: {
-    transform: [{ scaleX: 1.2 }, { scaleY: 1.2 }],
-  },
   notificationsButton: {
     position: 'relative',
     padding: 5,
@@ -1025,5 +1042,43 @@ const styles = StyleSheet.create({
     backgroundColor: '#28a745',
     borderWidth: 1,
     borderColor: '#fff',
+  },
+  enableNotificationsButton: {
+    backgroundColor: '#fff',
+    padding: 12,
+    borderRadius: 8,
+    borderWidth: 2,
+    borderColor: '#000',
+    flex: 1,
+    marginRight: 10,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 2, height: 2 },
+    shadowOpacity: 0.5,
+    shadowRadius: 0,
+    elevation: 5,
+  },
+  enableNotificationsText: {
+    color: '#000',
+    fontSize: 16,
+  },
+  disableNotificationsButton: {
+    backgroundColor: '#dc3545',
+    padding: 12,
+    borderRadius: 8,
+    borderWidth: 2,
+    borderColor: '#dc3545',
+    flex: 1,
+    marginRight: 10,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 2, height: 2 },
+    shadowOpacity: 0.5,
+    shadowRadius: 0,
+    elevation: 5,
+  },
+  disableNotificationsText: {
+    color: '#fff',
+    fontSize: 16,
   },
 });

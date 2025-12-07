@@ -87,8 +87,10 @@ export default function HomeScreen() {
   };
 
   const savePollyIds = async (ids: string[]) => {
-    setPollyIds(ids);
-    await AsyncStorage.setItem('pollyIds', JSON.stringify(ids));
+    // Remove duplicates to ensure clean list
+    const uniqueIds = [...new Set(ids)];
+    setPollyIds(uniqueIds);
+    await AsyncStorage.setItem('pollyIds', JSON.stringify(uniqueIds));
   };
 
   const removePolly = async (id: string) => {

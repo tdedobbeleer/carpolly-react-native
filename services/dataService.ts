@@ -1,16 +1,5 @@
-import {
-  doc,
-  setDoc,
-  getDoc,
-  serverTimestamp,
-  onSnapshot,
-  collection,
-  addDoc,
-  getDocs,
-  deleteDoc,
-  updateDoc
-} from 'firebase/firestore'
 import AsyncStorage from '@react-native-async-storage/async-storage'
+import firestore from '@react-native-firebase/firestore'
 import { db } from '../firebase'
 import { ValidationService } from './validationService'
 import { errorService } from './errorService'
@@ -38,21 +27,21 @@ class DataService {
     }
 
     return await errorService.withErrorHandling(async () => {
-      const docRef = doc(db, this.pollyCollection, id)
+      const docRef = db.collection(this.pollyCollection).doc(id)
       const { drivers, ...pollyData } = polly
-      const data = { ...pollyData, created: serverTimestamp() }
-      await setDoc(docRef, data, { merge: false })
+      const data = { ...pollyData, created: firestore.FieldValue.serverTimestamp() }
+      await docRef.set(data)
 
       if (drivers && drivers.length > 0) {
-        const driversCollection = collection(docRef, 'drivers')
+        const driversCollection = docRef.collection('drivers')
         for (const driver of drivers) {
           const { consumers, ...driverData } = driver
-          const driverDocRef = await addDoc(driversCollection, driverData)
+          const driverDocRef = await driversCollection.add(driverData)
 
           if (consumers && consumers.length > 0) {
-            const consumersCollection = collection(driverDocRef, 'consumers')
+            const consumersCollection = driverDocRef.collection('consumers')
             for (const consumer of consumers) {
-              await addDoc(consumersCollection, consumer)
+              await consumersCollection.add(consumer)
             }
           }
         }
@@ -63,19 +52,19 @@ class DataService {
 
   async getPolly(id: string) {
     return await errorService.withErrorHandling(async () => {
-      const docRef = doc(db, this.pollyCollection, id)
-      const docSnap = await getDoc(docRef)
+      const docRef = db.collection(this.pollyCollection).doc(id)
+      const docSnap = await docRef.get()
       if (docSnap.exists()) {
         const data = docSnap.data()
-        const driversCollection = collection(docRef, 'drivers')
-        const driversSnap = await getDocs(driversCollection)
-        const drivers = await Promise.all(driversSnap.docs.map(async driverDoc => {
-          const consumersCollection = collection(driverDoc.ref, 'consumers')
-          const consumersSnap = await getDocs(consumersCollection)
-          const consumers = consumersSnap.docs.map(consumerDoc => ({ id: consumerDoc.id, ...consumerDoc.data() }))
+        const driversCollection = docRef.collection('drivers')
+        const driversSnap = await driversCollection.get()
+        const drivers = await Promise.all(driversSnap.docs.map(async (driverDoc: any) => {
+          const consumersCollection = driverDoc.ref.collection('consumers')
+          const consumersSnap = await consumersCollection.get()
+          const consumers = consumersSnap.docs.map((consumerDoc: any) => ({ id: consumerDoc.id, ...consumerDoc.data() }))
           return { id: driverDoc.id, ...driverDoc.data(), consumers } as Driver
         }))
-        return { ...data, created: data.created?.toDate(), drivers } as Polly
+        return { ...data, created: data?.created?.toDate(), drivers } as Polly
       } else {
         throw new Error('Polly not found')
       }
@@ -84,11 +73,11 @@ class DataService {
 
   async updatePolly(id: string, polly: Partial<Polly>) {
     return await errorService.withErrorHandling(async () => {
-      const docRef = doc(db, this.pollyCollection, id)
+      const docRef = db.collection(this.pollyCollection).doc(id)
       const pollyData = { ...polly }
       delete pollyData.drivers
       if (Object.keys(pollyData).length > 0) {
-        await setDoc(docRef, pollyData, { merge: true })
+        await docRef.update(pollyData)
       }
       return true;
     }, { operation: 'update', entity: 'polly' }, true) // Show toast for user feedback
@@ -110,10 +99,10 @@ class DataService {
         throw new Error(Object.values(driverValidation.errors).join(', '))
       }
 
-      const pollyDocRef = doc(db, this.pollyCollection, pollyId)
-      const driversCollection = collection(pollyDocRef, 'drivers')
+      const pollyDocRef = db.collection(this.pollyCollection).doc(pollyId)
+      const driversCollection = pollyDocRef.collection('drivers')
       const { consumers, ...driverData } = driver
-      const driverDocRef = await addDoc(driversCollection, driverData)
+      const driverDocRef = await driversCollection.add(driverData)
 
       if (consumers && consumers.length > 0) {
         for (const consumer of consumers) {
@@ -127,23 +116,23 @@ class DataService {
 
   async updateDriver(pollyId: string, driverId: string, driver: Partial<Driver>) {
     return await errorService.withErrorHandling(async () => {
-      const pollyDocRef = doc(db, this.pollyCollection, pollyId)
-      const driverDocRef = doc(collection(pollyDocRef, 'drivers'), driverId)
+      const pollyDocRef = db.collection(this.pollyCollection).doc(pollyId)
+      const driverDocRef = pollyDocRef.collection('drivers').doc(driverId)
       const driverData = { ...driver }
       delete driverData.consumers
-      await updateDoc(driverDocRef, driverData)
+      await driverDocRef.update(driverData)
 
       // Update driver timestamp to trigger subscription
-      await updateDoc(driverDocRef, { lastUpdated: serverTimestamp() })
+      await driverDocRef.update({ lastUpdated: firestore.FieldValue.serverTimestamp() })
       return true;
     }, { operation: 'update', entity: 'driver' }, true) // Show toast for user feedback
   }
 
   async deleteDriver(pollyId: string, driverId: string) {
     return await errorService.withErrorHandling(async () => {
-      const pollyDocRef = doc(db, this.pollyCollection, pollyId)
-      const driverDocRef = doc(collection(pollyDocRef, 'drivers'), driverId)
-      await deleteDoc(driverDocRef)
+      const pollyDocRef = db.collection(this.pollyCollection).doc(pollyId)
+      const driverDocRef = pollyDocRef.collection('drivers').doc(driverId)
+      await driverDocRef.delete()
       return true;
     }, { operation: 'delete', entity: 'driver' }, true) // Show toast for user feedback
   }
@@ -164,74 +153,76 @@ class DataService {
         throw new Error(Object.values(consumerValidation.errors).join(', '))
       }
 
-      const pollyDocRef = doc(db, this.pollyCollection, pollyId)
-      const driverDocRef = doc(collection(pollyDocRef, 'drivers'), driverId)
-      const consumersCollection = collection(driverDocRef, 'consumers')
+      const pollyDocRef = db.collection(this.pollyCollection).doc(pollyId)
+      const driverDocRef = pollyDocRef.collection('drivers').doc(driverId)
+      const consumersCollection = driverDocRef.collection('consumers')
       const data: any = { name: consumer.name };
       if (consumer.comments) data.comments = consumer.comments;
-      const consumerDocRef = await addDoc(consumersCollection, data)
+      const consumerDocRef = await consumersCollection.add(data)
       return consumerDocRef.id
     }, { operation: 'create', entity: 'passenger' }, true) // Show toast for user feedback
   }
 
   async updateConsumer(pollyId: string, driverId: string, consumerId: string, consumer: Partial<Consumer>) {
     return await errorService.withErrorHandling(async () => {
-      const pollyDocRef = doc(db, this.pollyCollection, pollyId)
-      const driverDocRef = doc(collection(pollyDocRef, 'drivers'), driverId)
-      const consumerDocRef = doc(collection(driverDocRef, 'consumers'), consumerId)
+      const pollyDocRef = db.collection(this.pollyCollection).doc(pollyId)
+      const driverDocRef = pollyDocRef.collection('drivers').doc(driverId)
+      const consumerDocRef = driverDocRef.collection('consumers').doc(consumerId)
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const { id: _, ...consumerData } = consumer
-      await updateDoc(consumerDocRef, consumerData)
+      await consumerDocRef.update(consumerData)
       return true;
     }, { operation: 'update', entity: 'passenger' }, true) // Show toast for user feedback
   }
 
   async deleteConsumer(pollyId: string, driverId: string, consumerId: string) {
     return await errorService.withErrorHandling(async () => {
-      const pollyDocRef = doc(db, this.pollyCollection, pollyId)
-      const driverDocRef = doc(collection(pollyDocRef, 'drivers'), driverId)
-      const consumerDocRef = doc(collection(driverDocRef, 'consumers'), consumerId)
-      await deleteDoc(consumerDocRef)
+      const pollyDocRef = db.collection(this.pollyCollection).doc(pollyId)
+      const driverDocRef = pollyDocRef.collection('drivers').doc(driverId)
+      const consumerDocRef = driverDocRef.collection('consumers').doc(consumerId)
+      await consumerDocRef.delete()
       return true;
     }, { operation: 'delete', entity: 'passenger' }, true) // Show toast for user feedback
   }
 
   subscribeToPolly(id: string, callback: (polly: Polly | null) => void) {
     return errorService.withErrorHandling(async () => {
-      const docRef = doc(db, this.pollyCollection, id)
-      const driversCollection = collection(docRef, 'drivers')
+      const docRef = db.collection(this.pollyCollection).doc(id)
+      const driversCollection = docRef.collection('drivers')
 
       // Listen to changes in the drivers collection
-      const unsubscribeDrivers = onSnapshot(driversCollection, async (driversSnap) => {
+      const unsubscribeDrivers = driversCollection.onSnapshot(async (driversSnap: any) => {
         try {
-          const docSnap = await getDoc(docRef)
+          const docSnap = await docRef.get()
           if (docSnap.exists()) {
             const data = docSnap.data()
-            const drivers = await Promise.all(driversSnap.docs.map(async driverDoc => {
-              const consumersCollection = collection(driverDoc.ref, 'consumers')
+            const drivers = await Promise.all(driversSnap.docs.map(async (driverDoc: any) => {
+              const consumersCollection = driverDoc.ref.collection('consumers')
               // Listen to changes in consumers for each driver
-              onSnapshot(consumersCollection, (consumersSnap) => {
-                const consumers = consumersSnap.docs.map(consumerDoc => ({ id: consumerDoc.id, ...consumerDoc.data() }))
+              consumersCollection.onSnapshot((consumersSnap: any) => {
+                const consumers = consumersSnap.docs.map((consumerDoc: any) => ({ id: consumerDoc.id, ...consumerDoc.data() }))
                 // Trigger callback when consumers change - rebuild full drivers list
-                Promise.all(driversSnap.docs.map(async d => {
+                Promise.all(driversSnap.docs.map(async (d: any) => {
                   if (d.id === driverDoc.id) {
                     return { id: d.id, ...d.data(), consumers } as Driver
                   } else {
-                    const otherConsumersCollection = collection(d.ref, 'consumers')
-                    const otherConsumersSnap = await getDocs(otherConsumersCollection)
-                    const otherConsumers = otherConsumersSnap.docs.map(c => ({ id: c.id, ...c.data() }))
-                    return { id: d.id, ...d.data(), consumers: otherConsumers } as Driver
+                    const otherConsumersCollection = d.ref.collection('consumers')
+                    const otherConsumersSnap = otherConsumersCollection.get()
+                    return otherConsumersSnap.then((snap: any) => {
+                      const otherConsumers = snap.docs.map((c: any) => ({ id: c.id, ...c.data() }))
+                      return { id: d.id, ...d.data(), consumers: otherConsumers } as Driver
+                    })
                   }
                 })).then(finalDrivers => {
-                  callback({ ...data, created: data.created?.toDate(), drivers: finalDrivers } as Polly)
+                  callback({ ...data, created: data?.created?.toDate(), drivers: finalDrivers } as Polly)
                 })
               })
               // For initial load, get consumers synchronously
-              const consumersSnap = await getDocs(consumersCollection)
-              const consumers = consumersSnap.docs.map(consumerDoc => ({ id: consumerDoc.id, ...consumerDoc.data() }))
+              const consumersSnap = await consumersCollection.get()
+              const consumers = consumersSnap.docs.map((consumerDoc: any) => ({ id: consumerDoc.id, ...consumerDoc.data() }))
               return { id: driverDoc.id, ...driverDoc.data(), consumers } as Driver
             }))
-            callback({ ...data, created: data.created?.toDate(), drivers } as Polly)
+            callback({ ...data, created: data?.created?.toDate(), drivers } as Polly)
           } else {
             callback(null)
           }
@@ -247,21 +238,21 @@ class DataService {
 
   subscribeToPollies(callback: (pollies: Polly[]) => void) {
     return errorService.withErrorHandling(async () => {
-      const polliesCollection = collection(db, this.pollyCollection)
+      const polliesCollection = db.collection(this.pollyCollection)
 
-      const unsubscribe = onSnapshot(polliesCollection, async (polliesSnap) => {
+      const unsubscribe = polliesCollection.onSnapshot(async (polliesSnap: any) => {
         try {
-          const pollies = await Promise.all(polliesSnap.docs.map(async pollyDoc => {
+          const pollies = await Promise.all(polliesSnap.docs.map(async (pollyDoc: any) => {
             const data = pollyDoc.data()
-            const driversCollection = collection(pollyDoc.ref, 'drivers')
-            const driversSnap = await getDocs(driversCollection)
-            const drivers = await Promise.all(driversSnap.docs.map(async driverDoc => {
-              const consumersCollection = collection(driverDoc.ref, 'consumers')
-              const consumersSnap = await getDocs(consumersCollection)
-              const consumers = consumersSnap.docs.map(consumerDoc => ({ id: consumerDoc.id, ...consumerDoc.data() }))
+            const driversCollection = pollyDoc.ref.collection('drivers')
+            const driversSnap = await driversCollection.get()
+            const drivers = await Promise.all(driversSnap.docs.map(async (driverDoc: any) => {
+              const consumersCollection = driverDoc.ref.collection('consumers')
+              const consumersSnap = await consumersCollection.get()
+              const consumers = consumersSnap.docs.map((consumerDoc: any) => ({ id: consumerDoc.id, ...consumerDoc.data() }))
               return { id: driverDoc.id, ...driverDoc.data(), consumers } as Driver
             }))
-            return { id: pollyDoc.id, ...data, created: data.created?.toDate(), drivers } as Polly
+            return { id: pollyDoc.id, ...data, created: data?.created?.toDate(), drivers } as Polly
           }))
           callback(pollies)
         } catch (error) {
