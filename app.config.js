@@ -1,4 +1,4 @@
-{
+module.exports = {
   "expo": {
     "name": "CarPolly",
     "slug": "carpolly-react-native",
@@ -14,11 +14,11 @@
     },
     "ios": {
       "supportsTablet": true,
-      "googleServicesFile": "./GoogleService-Info.plist",
+      "googleServicesFile": process.env.GOOGLE_SERVICES_PLIST,
       "bundleIdentifier": "com.carpolly.reactnative"
     },
     "android": {
-      "googleServicesFile": "./google-services.json",
+      "googleServicesFile": process.env.GOOGLE_SERVICES_JSON,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
