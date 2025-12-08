@@ -6,7 +6,7 @@ interface EditPollyModalProps {
   visible: boolean;
   description: string;
   onClose: () => void;
-  onSubmit: (description: string) => void;
+  onSubmit: (description: string) => Promise<boolean>;
 }
 
 export default function EditPollyModal({ visible, description, onClose, onSubmit }: EditPollyModalProps) {
@@ -19,6 +19,7 @@ export default function EditPollyModal({ visible, description, onClose, onSubmit
   }, [visible, description]);
 
   const handleSubmit = () => {
+    // Fire the submit operation asynchronously - errors will be handled by toasts
     onSubmit(editingDescription);
     onClose();
   };

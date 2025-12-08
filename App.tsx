@@ -9,6 +9,7 @@ import { useFonts } from 'expo-font';
 import { Neucha_400Regular } from '@expo-google-fonts/neucha';
 import { CabinSketch_400Regular } from '@expo-google-fonts/cabin-sketch';
 import * as Linking from 'expo-linking';
+import { useNetworkState } from 'expo-network';
 import { backgroundTaskService } from './services/backgroundTaskService';
 // React Native Firebase initializes automatically
 import CustomText from './components/CustomText';
@@ -116,6 +117,7 @@ export default function App() {
     Neucha_400Regular,
     CabinSketch_400Regular,
   });
+  const networkState = useNetworkState();
 
   React.useEffect(() => {
     // Initialize background task service
@@ -128,30 +130,37 @@ export default function App() {
   }
 
   return (
-    <NavigationContainer linking={linking as any}>
-      <Drawer.Navigator
-        drawerContent={(props) => <CustomDrawerContent {...props} />}
-        screenOptions={{
-          headerStyle: {
-            backgroundColor: 'rgba(248, 249, 250, 0.5)',
-          },
-          drawerLabelStyle: {
-            fontFamily: 'Neucha_400Regular',
-          },
-        }}
-      >
-        <Drawer.Screen
-          name="HomeStack"
-          component={HomeStack}
-          options={{
-            title: 'Home',
-            drawerIcon: ({ color, size }) => <Ionicons name="home" color={color} size={size} />,
-            headerShown: false,
-            drawerItemStyle: { display: 'none' },
+    <View style={{ flex: 1 }}>
+      {networkState.isInternetReachable === false && (
+        <View style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 30, backgroundColor: 'red', justifyContent: 'center', alignItems: 'center', zIndex: 1000 }}>
+          <CustomText style={{ color: 'white', fontSize: 14 }}>Offline</CustomText>
+        </View>
+      )}
+      <NavigationContainer linking={linking as any}>
+        <Drawer.Navigator
+          drawerContent={(props) => <CustomDrawerContent {...props} />}
+          screenOptions={{
+            headerStyle: {
+              backgroundColor: 'rgba(248, 249, 250, 0.5)',
+            },
+            drawerLabelStyle: {
+              fontFamily: 'Neucha_400Regular',
+            },
           }}
-        />
-      </Drawer.Navigator>
-      <StatusBar />
-    </NavigationContainer>
+        >
+          <Drawer.Screen
+            name="HomeStack"
+            component={HomeStack}
+            options={{
+              title: 'Home',
+              drawerIcon: ({ color, size }) => <Ionicons name="home" color={color} size={size} />,
+              headerShown: false,
+              drawerItemStyle: { display: 'none' },
+            }}
+          />
+        </Drawer.Navigator>
+        <StatusBar />
+      </NavigationContainer>
+    </View>
   );
 }

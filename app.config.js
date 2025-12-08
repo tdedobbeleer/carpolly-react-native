@@ -14,11 +14,11 @@ module.exports = {
     },
     "ios": {
       "supportsTablet": true,
-      "googleServicesFile": process.env.GOOGLE_SERVICES_PLIST,
+      "googleServicesFile": process.env.GOOGLE_SERVICES_PLIST || "./GoogleService-Info.plist",
       "bundleIdentifier": "com.carpolly.reactnative"
     },
     "android": {
-      "googleServicesFile": process.env.GOOGLE_SERVICES_JSON,
+      "googleServicesFile": process.env.GOOGLE_SERVICES_JSON || "./google-services.json",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"

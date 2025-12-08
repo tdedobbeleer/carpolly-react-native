@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, TouchableOpacity, StyleSheet, Modal, TextInput, FlatList, Share, Image, Platform } from 'react-native';
+import { View, TouchableOpacity, StyleSheet, Modal, TextInput, FlatList, Share, Image, Platform, RefreshControl } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import * as Progress from 'react-native-progress';
@@ -12,6 +12,7 @@ import CustomText from '../components/CustomText';
 import AddDriverModal from '../components/AddDriverModal';
 import EditDriverModal from '../components/EditDriverModal';
 import EditPollyModal from '../components/EditPollyModal';
+import AddConsumerModal from '../components/AddConsumerModal';
 import AlertModal from '../components/AlertModal';
 import { useRoute, useNavigation } from '@react-navigation/native';
 import { dataService } from '../services/dataService';
@@ -54,12 +55,9 @@ export default function PollyDetailScreen() {
   const [alertTitle, setAlertTitle] = useState('');
   const [alertMessage, setAlertMessage] = useState('');
   const [alertButtons, setAlertButtons] = useState<any[]>([]);
+  const [refreshing, setRefreshing] = useState(false);
 
 
-  // Add Consumer Modal state
-  const [consumerName, setConsumerName] = useState('');
-  const [consumerComments, setConsumerComments] = useState('');
-  const [consumerNameError, setConsumerNameError] = useState('');
 
   useEffect(() => {
     // Load notification settings when component mounts
@@ -180,40 +178,25 @@ export default function PollyDetailScreen() {
   }, [id]);
 
 
-  const resetConsumerErrors = () => {
-    setConsumerNameError('');
-  };
-
-  const handleAddDriver = async (driver: Driver) => {
+  const handleAddDriver = async (driver: Driver): Promise<boolean> => {
     if (!ValidationService.checkRateLimit('createDriver', 5, 60000)) {
       ValidationService.showRateLimitModal('create driver', 5, 60000);
-      return;
+      return false;
     }
 
     const result = await dataService.createDriver(id, driver);
     if (result !== null) {
-      // Update GUI immediately when driver is successfully added
-      setPolly(prev => prev ? { ...prev, drivers: [...(prev.drivers || []), { ...driver, id: result }] } : null);
       setShowAddDriverModal(false);
+      return true;
     }
+    return false;
   };
 
-  const handleAddConsumer = async () => {
+  const handleAddConsumer = async (consumer: Consumer): Promise<boolean> => {
     if (!ValidationService.checkRateLimit('addConsumer', 10, 60000)) {
       ValidationService.showRateLimitModal('add consumer', 10, 60000);
-      return;
+      return false;
     }
-
-    const validation = ValidationService.validateConsumerForm(consumerName, consumerComments);
-
-    setConsumerNameError(validation.errors.name || '');
-
-    if (!validation.isValid) return;
-
-    const consumer: Consumer = {
-      name: consumerName,
-      comments: consumerComments || undefined
-    };
 
     if (polly?.drivers && selectedDriverIndex >= 0) {
       const driver = polly.drivers[selectedDriverIndex];
@@ -221,12 +204,11 @@ export default function PollyDetailScreen() {
         const result = await dataService.createConsumer(id, driver.id, consumer);
         if (result !== null) {
           setShowAddConsumerModal(false);
-          setConsumerName('');
-          setConsumerComments('');
-          resetConsumerErrors();
+          return true;
         }
       }
     }
+    return false;
   };
 
   const handleDeleteDriver = async (driverId: string) => {
@@ -276,10 +258,14 @@ export default function PollyDetailScreen() {
     }
   };
 
-  const handleEditPolly = async (description: string) => {
-    await dataService.updatePolly(id, { description });
-    setPolly(prev => prev ? { ...prev, description } : null);
-    setShowEditPollyModal(false);
+  const handleEditPolly = async (description: string): Promise<boolean> => {
+    const result = await dataService.updatePolly(id, { description });
+    if (result !== null) {
+      setPolly(prev => prev ? { ...prev, description } : null);
+      setShowEditPollyModal(false);
+      return true;
+    }
+    return false;
   };
 
   const openEditDriverModal = (driver: Driver) => {
@@ -287,16 +273,19 @@ export default function PollyDetailScreen() {
     setShowEditDriverModal(true);
   };
 
-  const handleEditDriver = async (updatedDriver: Driver) => {
-    if (!editingDriver) return;
+  const handleEditDriver = async (updatedDriver: Driver): Promise<boolean> => {
+    if (!editingDriver) return false;
 
-    await dataService.updateDriver(id, editingDriver.id!, {
+    const result = await dataService.updateDriver(id, editingDriver.id!, {
       name: updatedDriver.name,
       description: updatedDriver.description,
       spots: updatedDriver.spots
     });
-    setPolly(prev => prev ? { ...prev, drivers: (prev.drivers || []).map(d => d.id === editingDriver.id ? { ...d, name: updatedDriver.name, description: updatedDriver.description, spots: updatedDriver.spots } : d) } : null);
-    setShowEditDriverModal(false);
+    if (result !== null) {
+      setShowEditDriverModal(false);
+      return true;
+    }
+    return false;
   };
 
   const toggleComments = (consumerId: string) => {
@@ -462,6 +451,19 @@ export default function PollyDetailScreen() {
     }
   };
 
+  const onRefresh = async () => {
+    setRefreshing(true);
+    try {
+      const freshPolly = await dataService.getPolly(id);
+      setPolly(freshPolly);
+    } catch (error) {
+      console.error('Error refreshing polly:', error);
+      Toast.show('Failed to refresh data.', Toast.SHORT);
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
   if (isLoading) {
     return (
       <View style={styles.loadingContainer}>
@@ -499,6 +501,9 @@ export default function PollyDetailScreen() {
         })}
         keyExtractor={(item, index) => item.id || index.toString()}
         contentContainerStyle={styles.content}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+        }
         ListHeaderComponent={
           <>
             <TouchableOpacity onPress={() => setShowEditPollyModal(true)} style={styles.titleContainer}>
@@ -635,47 +640,11 @@ export default function PollyDetailScreen() {
         onSubmit={handleAddDriver}
       />
 
-      {/* Add Consumer Modal */}
-      <Modal visible={showAddConsumerModal} animationType="slide" transparent>
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <CustomText type="h2" style={styles.modalTitle}>Join as Passenger</CustomText>
-
-            <CustomText style={styles.label}>Your Name:</CustomText>
-            <TextInput
-              style={[styles.input, consumerNameError ? styles.inputError : null]}
-              value={consumerName}
-              onChangeText={(text) => {
-                setConsumerName(text);
-                resetConsumerErrors();
-              }}
-              placeholder="Your name"
-              maxLength={60}
-            />
-            {consumerNameError ? <CustomText style={styles.errorText}>{consumerNameError}</CustomText> : null}
-
-            <CustomText style={styles.label}>Comments (optional):</CustomText>
-            <TextInput
-              style={styles.input}
-              value={consumerComments}
-              onChangeText={setConsumerComments}
-              placeholder="Any comments"
-              maxLength={255}
-              multiline
-              numberOfLines={3}
-            />
-
-            <View style={styles.modalActions}>
-              <TouchableOpacity style={styles.cancelButton} onPress={() => setShowAddConsumerModal(false)}>
-                <CustomText>Cancel</CustomText>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.submitButton} onPress={handleAddConsumer}>
-                <CustomText style={styles.submitText}>Join Ride</CustomText>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
+      <AddConsumerModal
+        visible={showAddConsumerModal}
+        onClose={() => setShowAddConsumerModal(false)}
+        onSubmit={handleAddConsumer}
+      />
 
       <EditPollyModal
         visible={showEditPollyModal}

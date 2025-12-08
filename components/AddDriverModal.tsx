@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { View, TouchableOpacity, StyleSheet, Modal, TextInput } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import Toast from 'react-native-simple-toast';
 import CustomText from './CustomText';
 import { ValidationService } from '../services/validationService';
 import type { Driver } from '../models/driver.model';
@@ -9,7 +8,7 @@ import type { Driver } from '../models/driver.model';
 interface AddDriverModalProps {
   visible: boolean;
   onClose: () => void;
-  onSubmit: (driver: Driver) => void;
+  onSubmit: (driver: Driver) => Promise<boolean>;
 }
 
 export default function AddDriverModal({ visible, onClose, onSubmit }: AddDriverModalProps) {
@@ -29,16 +28,18 @@ export default function AddDriverModal({ visible, onClose, onSubmit }: AddDriver
   const handleSubmit = async () => {
     if (!ValidationService.checkRateLimit('createDriver', 5, 60000)) {
       ValidationService.showRateLimitModal('create driver', 5, 60000);
+      onClose();
       return;
     }
 
     const validation = ValidationService.validateDriverForm(driverName, driverDescription, parseInt(driverSpots));
 
-    setDriverNameError(validation.errors.name || '');
-    setDriverDescriptionError(validation.errors.description || '');
-    setDriverSpotsError(validation.errors.spots || '');
-
-    if (!validation.isValid) return;
+    if (!validation.isValid) {
+      setDriverNameError(validation.errors.name || '');
+      setDriverDescriptionError(validation.errors.description || '');
+      setDriverSpotsError(validation.errors.spots || '');
+      return;
+    }
 
     const driver: Driver = {
       name: driverName,
@@ -47,9 +48,10 @@ export default function AddDriverModal({ visible, onClose, onSubmit }: AddDriver
       consumers: []
     };
 
+    // Fire the submit operation asynchronously - errors will be handled by toasts
     onSubmit(driver);
 
-    // Reset form
+    // Reset form and close modal immediately after validation
     setDriverName('');
     setDriverDescription('');
     setDriverSpots('1');

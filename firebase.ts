@@ -10,6 +10,9 @@ let db: any = null;
 
 try {
   db = firestore();
+  if (__DEV__) {
+    db.useEmulator('10.0.2.2', 8080);
+  }
   console.log('Firebase initialized successfully');
 } catch (error) {
   console.error('Firebase initialization failed. Make sure you have the config files:');

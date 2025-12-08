@@ -7,7 +7,7 @@ interface EditDriverModalProps {
   visible: boolean;
   driver: Driver | null;
   onClose: () => void;
-  onSubmit: (driver: Driver) => void;
+  onSubmit: (driver: Driver) => Promise<boolean>;
 }
 
 export default function EditDriverModal({ visible, driver, onClose, onSubmit }: EditDriverModalProps) {
@@ -59,12 +59,15 @@ export default function EditDriverModal({ visible, driver, onClose, onSubmit }: 
       return;
     }
 
-    onSubmit({
+    const updatedDriver = {
       ...editingDriver,
       name: editingDriver.name,
       description: editingDriver.description,
       spots: newSpots
-    });
+    };
+
+    // Fire the submit operation asynchronously - errors will be handled by toasts
+    onSubmit(updatedDriver);
     onClose();
   };
 

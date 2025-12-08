@@ -16,13 +16,19 @@ type MonitoringConfig = {
 class BackgroundTaskService {
   private monitoringConfig: MonitoringConfig = {};
   private isTaskRegistered: boolean = false;
+  private isTaskDefined: boolean = false;
 
   async init() {
     console.log('[BackgroundTaskService] Initializing background task service');
 
-    // Register the background task
-    TaskManager.defineTask(POLLY_MONITOR_TASK, this.monitorPollies.bind(this));
-    console.log('[BackgroundTaskService] Background task defined:', POLLY_MONITOR_TASK);
+    // Register the background task only once
+    if (!this.isTaskDefined) {
+      TaskManager.defineTask(POLLY_MONITOR_TASK, this.monitorPollies.bind(this));
+      this.isTaskDefined = true;
+      console.log('[BackgroundTaskService] Background task defined:', POLLY_MONITOR_TASK);
+    } else {
+      console.log('[BackgroundTaskService] Background task already defined, skipping');
+    }
 
     // Load monitoring configuration from storage
     const stored = await AsyncStorage.getItem(MONITORED_POLLIES_KEY);
@@ -39,7 +45,7 @@ class BackgroundTaskService {
     if (hasMonitoredItems && !this.isTaskRegistered) {
       console.log('[BackgroundTaskService] Registering background task with', Object.keys(this.monitoringConfig).length, 'monitored items');
       await BackgroundTask.registerTaskAsync(POLLY_MONITOR_TASK, {
-        minimumInterval: 900, // 15 minutes
+        minimumInterval: 15, // 15 minutes
       });
       this.isTaskRegistered = true;
       console.log('[BackgroundTaskService] Background task registered successfully');
@@ -65,7 +71,7 @@ class BackgroundTaskService {
       console.log('[BackgroundTaskService] Registering background task for first monitored item');
       try {
         await BackgroundTask.registerTaskAsync(POLLY_MONITOR_TASK, {
-          minimumInterval: 900, // 15 minutes
+          minimumInterval: 15, // 15 minutes
         });
         this.isTaskRegistered = true;
         console.log('[BackgroundTaskService] Background task registered successfully');
@@ -214,6 +220,10 @@ class BackgroundTaskService {
             const notifications = this.generateNotifications(previousPolly, polly, config);
             console.log('[BackgroundTaskService] Generated', notifications.length, 'notifications for polly:', pollyId);
 
+            // Save current state
+            console.log('[BackgroundTaskService] Saving current state for polly:', pollyId);
+            await AsyncStorage.setItem(stateKey, JSON.stringify(polly));
+
             if (notifications.length > 0) {
               console.log('[BackgroundTaskService] Posting notifications:', notifications);
               notifications.forEach((message, index) => {
@@ -234,11 +244,11 @@ class BackgroundTaskService {
             } else {
               console.log('[BackgroundTaskService] No changes detected for polly:', pollyId);
             }
+          } else {
+            // Save current state even if no previous
+            console.log('[BackgroundTaskService] Saving current state for polly:', pollyId);
+            await AsyncStorage.setItem(stateKey, JSON.stringify(polly));
           }
-
-          // Save current state
-          console.log('[BackgroundTaskService] Saving current state for polly:', pollyId);
-          await AsyncStorage.setItem(stateKey, JSON.stringify(polly));
         } else {
           console.log('[BackgroundTaskService] Failed to retrieve polly data for:', pollyId);
         }
