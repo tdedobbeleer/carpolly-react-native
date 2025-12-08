@@ -817,3 +817,12 @@ java.net.SocketException: Connection reset
 Dec 08, 2025 8:12:27 PM io.gapi.emulators.netty.HttpVersionRoutingHandler channelRead
 INFO: Detected HTTP/2 connection.
 Multiple projectIds are not recommended in single project mode. Requested project ID carpolly-dummy, but the emulator is configured for demo-no-project. To opt-out of single project mode add/set the '"singleProjectMode": false' property in the firebase.json emulators config.
+Dec 08, 2025 8:17:11 PM io.gapi.emulators.netty.HttpVersionRoutingHandler channelRead
+INFO: Detected HTTP/2 connection.
+Multiple projectIds are not recommended in single project mode. Requested project ID carpolly-dummy, but the emulator is configured for demo-no-project. To opt-out of single project mode add/set the '"singleProjectMode": false' property in the firebase.json emulators config.
+Dec 08, 2025 8:20:11 PM io.gapi.emulators.netty.HttpVersionRoutingHandler channelRead
+INFO: Detected HTTP/2 connection.
+Multiple projectIds are not recommended in single project mode. Requested project ID carpolly-dummy, but the emulator is configured for demo-no-project. To opt-out of single project mode add/set the '"singleProjectMode": false' property in the firebase.json emulators config.
+Dec 08, 2025 8:22:34 PM io.gapi.emulators.netty.HttpVersionRoutingHandler channelRead
+INFO: Detected HTTP/2 connection.
+Multiple projectIds are not recommended in single project mode. Requested project ID carpolly-dummy, but the emulator is configured for demo-no-project. To opt-out of single project mode add/set the '"singleProjectMode": false' property in the firebase.json emulators config.
