@@ -13,22 +13,177 @@ type MonitoringConfig = {
   [pollyId: string]: true | string[]; // true = monitor whole polly, string[] = monitor specific drivers
 };
 
+// Define the background task at module level so it's available when the app is not running
+TaskManager.defineTask(POLLY_MONITOR_TASK, async () => {
+  console.log('[BackgroundTaskService] Background task executed at:', new Date().toISOString());
+
+  try {
+    // Load monitoring configuration
+    const stored = await AsyncStorage.getItem(MONITORED_POLLIES_KEY);
+    let monitoringConfig: MonitoringConfig = {};
+    if (stored) {
+      monitoringConfig = JSON.parse(stored);
+      console.log('[BackgroundTaskService] Loaded monitoring config for background task:', monitoringConfig);
+    } else {
+      console.log('[BackgroundTaskService] No monitoring configuration found for background task');
+      return BackgroundTask.BackgroundTaskResult.Success;
+    }
+
+    for (const [pollyId, config] of Object.entries(monitoringConfig)) {
+      console.log('[BackgroundTaskService] Checking polly:', pollyId, '- Config:', config);
+
+      const polly = await dataService.getPolly(pollyId);
+      if (polly) {
+        console.log('[BackgroundTaskService] Retrieved polly data for:', pollyId, '- Description:', polly.description);
+
+        const stateKey = POLLY_STATE_KEY_PREFIX + pollyId;
+        const storedState = await AsyncStorage.getItem(stateKey);
+        let previousPolly: Polly | null = null;
+
+        if (storedState) {
+          previousPolly = JSON.parse(storedState);
+          console.log('[BackgroundTaskService] Found previous state for polly:', pollyId);
+        } else {
+          console.log('[BackgroundTaskService] No previous state found for polly:', pollyId, '- this is the first check');
+        }
+
+        if (previousPolly) {
+          const notifications = generateNotifications(previousPolly, polly, config);
+          console.log('[BackgroundTaskService] Generated', notifications.length, 'notifications for polly:', pollyId);
+
+          // Save current state
+          console.log('[BackgroundTaskService] Saving current state for polly:', pollyId);
+          await AsyncStorage.setItem(stateKey, JSON.stringify(polly));
+
+          if (notifications.length > 0) {
+            console.log('[BackgroundTaskService] Posting notifications:', notifications);
+            for (const message of notifications) {
+              const notificationId = `polly-${Date.now()}-${Math.random()}`;
+              console.log('[BackgroundTaskService] Posting notification:', notificationId, '- Message:', message);
+
+              await Notifications.scheduleNotificationAsync({
+                identifier: notificationId,
+                content: {
+                  title: 'CarPolly Update',
+                  body: message,
+                  sound: 'default',
+                  badge: 1,
+                  data: {},
+                },
+                trigger: null,
+              });
+            }
+          } else {
+            console.log('[BackgroundTaskService] No changes detected for polly:', pollyId);
+          }
+        } else {
+          // Save current state even if no previous
+          console.log('[BackgroundTaskService] Saving current state for polly:', pollyId);
+          await AsyncStorage.setItem(stateKey, JSON.stringify(polly));
+        }
+      } else {
+        console.log('[BackgroundTaskService] Failed to retrieve polly data for:', pollyId);
+      }
+    }
+
+    console.log('[BackgroundTaskService] Background task completed successfully');
+  } catch (error) {
+    console.error('[BackgroundTaskService] Error in background polly monitoring:', error);
+  }
+
+  return BackgroundTask.BackgroundTaskResult.Success;
+});
+
+function generateNotifications(prev: Polly, current: Polly, config: true | string[]) {
+  const messages: string[] = [];
+
+  const prevDrivers = prev.drivers || [];
+  const currentDrivers = current.drivers || [];
+
+  if (config === true) {
+    // Monitor entire polly - check all changes
+    console.log('[BackgroundTaskService] Monitoring entire polly');
+
+    // Check for polly description changes
+    if (prev.description !== current.description) {
+      messages.push(`Polly description updated.`);
+    }
+
+    // Check for added drivers
+    const addedDrivers = currentDrivers.filter(cd => !prevDrivers.find(pd => pd.id === cd.id));
+    addedDrivers.forEach(driver => {
+      messages.push(`Driver "${driver.name}" joined the polly.`);
+    });
+
+    // Check for removed drivers
+    const removedDrivers = prevDrivers.filter(pd => !currentDrivers.find(cd => cd.id === pd.id));
+    removedDrivers.forEach(driver => {
+      messages.push(`Driver "${driver.name}" left the polly.`);
+    });
+
+    // Check for changes in existing drivers
+    currentDrivers.forEach(currentDriver => {
+      const prevDriver = prevDrivers.find(pd => pd.id === currentDriver.id);
+      if (prevDriver) {
+        const prevConsumers = prevDriver.consumers || [];
+        const currentConsumers = currentDriver.consumers || [];
+
+        // Added consumers
+        const addedConsumers = currentConsumers.filter(cc => !prevConsumers.find(pc => pc.id === cc.id));
+        addedConsumers.forEach(consumer => {
+          messages.push(`"${consumer.name}" joined "${currentDriver.name}"'s ride.`);
+        });
+
+        // Removed consumers
+        const removedConsumers = prevConsumers.filter(pc => !currentConsumers.find(cc => cc.id === pc.id));
+        removedConsumers.forEach(consumer => {
+          messages.push(`"${consumer.name}" left "${currentDriver.name}"'s ride.`);
+        });
+      }
+    });
+  } else {
+    // Monitor specific drivers only
+    console.log('[BackgroundTaskService] Monitoring specific drivers:', config);
+
+    config.forEach(driverId => {
+      const prevDriver = prevDrivers.find(pd => pd.id === driverId);
+      const currentDriver = currentDrivers.find(cd => cd.id === driverId);
+
+      if (!prevDriver && currentDriver) {
+        // Driver was added
+        messages.push(`Driver "${currentDriver.name}" joined the polly.`);
+      } else if (prevDriver && !currentDriver) {
+        // Driver was removed
+        messages.push(`Driver "${prevDriver.name}" left the polly.`);
+      } else if (prevDriver && currentDriver) {
+        // Driver exists in both, check consumer changes
+        const prevConsumers = prevDriver.consumers || [];
+        const currentConsumers = currentDriver.consumers || [];
+
+        // Added consumers
+        const addedConsumers = currentConsumers.filter(cc => !prevConsumers.find(pc => pc.id === cc.id));
+        addedConsumers.forEach(consumer => {
+          messages.push(`"${consumer.name}" joined "${currentDriver.name}"'s ride.`);
+        });
+
+        // Removed consumers
+        const removedConsumers = prevConsumers.filter(pc => !currentConsumers.find(cc => cc.id === pc.id));
+        removedConsumers.forEach(consumer => {
+          messages.push(`"${consumer.name}" left "${currentDriver.name}"'s ride.`);
+        });
+      }
+    });
+  }
+
+  return messages;
+}
+
 class BackgroundTaskService {
   private monitoringConfig: MonitoringConfig = {};
   private isTaskRegistered: boolean = false;
-  private isTaskDefined: boolean = false;
 
   async init() {
     console.log('[BackgroundTaskService] Initializing background task service');
-
-    // Register the background task only once
-    if (!this.isTaskDefined) {
-      TaskManager.defineTask(POLLY_MONITOR_TASK, this.monitorPollies.bind(this));
-      this.isTaskDefined = true;
-      console.log('[BackgroundTaskService] Background task defined:', POLLY_MONITOR_TASK);
-    } else {
-      console.log('[BackgroundTaskService] Background task already defined, skipping');
-    }
 
     // Load monitoring configuration from storage
     const stored = await AsyncStorage.getItem(MONITORED_POLLIES_KEY);
@@ -193,76 +348,6 @@ class BackgroundTaskService {
     }
   }
 
-  private async monitorPollies() {
-    console.log('[BackgroundTaskService] Background task executed at:', new Date().toISOString());
-    console.log('[BackgroundTaskService] Monitoring config:', this.monitoringConfig);
-
-    try {
-      for (const [pollyId, config] of Object.entries(this.monitoringConfig)) {
-        console.log('[BackgroundTaskService] Checking polly:', pollyId, '- Config:', config);
-
-        const polly = await dataService.getPolly(pollyId);
-        if (polly) {
-          console.log('[BackgroundTaskService] Retrieved polly data for:', pollyId, '- Description:', polly.description);
-
-          const stateKey = POLLY_STATE_KEY_PREFIX + pollyId;
-          const storedState = await AsyncStorage.getItem(stateKey);
-          let previousPolly: Polly | null = null;
-
-          if (storedState) {
-            previousPolly = JSON.parse(storedState);
-            console.log('[BackgroundTaskService] Found previous state for polly:', pollyId);
-          } else {
-            console.log('[BackgroundTaskService] No previous state found for polly:', pollyId, '- this is the first check');
-          }
-
-          if (previousPolly) {
-            const notifications = this.generateNotifications(previousPolly, polly, config);
-            console.log('[BackgroundTaskService] Generated', notifications.length, 'notifications for polly:', pollyId);
-
-            // Save current state
-            console.log('[BackgroundTaskService] Saving current state for polly:', pollyId);
-            await AsyncStorage.setItem(stateKey, JSON.stringify(polly));
-
-            if (notifications.length > 0) {
-              console.log('[BackgroundTaskService] Posting notifications:', notifications);
-              for (const message of notifications) {
-                const notificationId = `polly-${Date.now()}-${Math.random()}`;
-                console.log('[BackgroundTaskService] Posting notification:', notificationId, '- Message:', message);
-
-                await Notifications.scheduleNotificationAsync({
-                  identifier: notificationId,
-                  content: {
-                    title: 'CarPolly Update',
-                    body: message,
-                    sound: 'default',
-                    badge: 1,
-                    data: {},
-                  },
-                  trigger: null,
-                });
-              }
-            } else {
-              console.log('[BackgroundTaskService] No changes detected for polly:', pollyId);
-            }
-          } else {
-            // Save current state even if no previous
-            console.log('[BackgroundTaskService] Saving current state for polly:', pollyId);
-            await AsyncStorage.setItem(stateKey, JSON.stringify(polly));
-          }
-        } else {
-          console.log('[BackgroundTaskService] Failed to retrieve polly data for:', pollyId);
-        }
-      }
-
-      console.log('[BackgroundTaskService] Background task completed successfully');
-    } catch (error) {
-      console.error('[BackgroundTaskService] Error in background polly monitoring:', error);
-    }
-
-    return BackgroundTask.BackgroundTaskResult.Success;
-  }
-
   private async saveMonitoringConfig() {
     console.log('[BackgroundTaskService] Saving monitoring config to storage:', this.monitoringConfig);
     await AsyncStorage.setItem(MONITORED_POLLIES_KEY, JSON.stringify(this.monitoringConfig));
@@ -280,85 +365,6 @@ class BackgroundTaskService {
 
   getMonitoringConfig(pollyId: string): true | string[] | undefined {
     return this.monitoringConfig[pollyId];
-  }
-
-  private generateNotifications(prev: Polly, current: Polly, config: true | string[]) {
-    const messages: string[] = [];
-
-    const prevDrivers = prev.drivers || [];
-    const currentDrivers = current.drivers || [];
-
-    if (config === true) {
-      // Monitor entire polly - check all changes
-      console.log('[BackgroundTaskService] Monitoring entire polly');
-
-      // Check for added drivers
-      const addedDrivers = currentDrivers.filter(cd => !prevDrivers.find(pd => pd.id === cd.id));
-      addedDrivers.forEach(driver => {
-        messages.push(`Driver "${driver.name}" joined the polly.`);
-      });
-
-      // Check for removed drivers
-      const removedDrivers = prevDrivers.filter(pd => !currentDrivers.find(cd => cd.id === pd.id));
-      removedDrivers.forEach(driver => {
-        messages.push(`Driver "${driver.name}" left the polly.`);
-      });
-
-      // Check for changes in existing drivers
-      currentDrivers.forEach(currentDriver => {
-        const prevDriver = prevDrivers.find(pd => pd.id === currentDriver.id);
-        if (prevDriver) {
-          const prevConsumers = prevDriver.consumers || [];
-          const currentConsumers = currentDriver.consumers || [];
-
-          // Added consumers
-          const addedConsumers = currentConsumers.filter(cc => !prevConsumers.find(pc => pc.id === cc.id));
-          addedConsumers.forEach(consumer => {
-            messages.push(`"${consumer.name}" joined "${currentDriver.name}"'s ride.`);
-          });
-
-          // Removed consumers
-          const removedConsumers = prevConsumers.filter(pc => !currentConsumers.find(cc => cc.id === pc.id));
-          removedConsumers.forEach(consumer => {
-            messages.push(`"${consumer.name}" left "${currentDriver.name}"'s ride.`);
-          });
-        }
-      });
-    } else {
-      // Monitor specific drivers only
-      console.log('[BackgroundTaskService] Monitoring specific drivers:', config);
-
-      config.forEach(driverId => {
-        const prevDriver = prevDrivers.find(pd => pd.id === driverId);
-        const currentDriver = currentDrivers.find(cd => cd.id === driverId);
-
-        if (!prevDriver && currentDriver) {
-          // Driver was added
-          messages.push(`Driver "${currentDriver.name}" joined the polly.`);
-        } else if (prevDriver && !currentDriver) {
-          // Driver was removed
-          messages.push(`Driver "${prevDriver.name}" left the polly.`);
-        } else if (prevDriver && currentDriver) {
-          // Driver exists in both, check consumer changes
-          const prevConsumers = prevDriver.consumers || [];
-          const currentConsumers = currentDriver.consumers || [];
-
-          // Added consumers
-          const addedConsumers = currentConsumers.filter(cc => !prevConsumers.find(pc => pc.id === cc.id));
-          addedConsumers.forEach(consumer => {
-            messages.push(`"${consumer.name}" joined "${currentDriver.name}"'s ride.`);
-          });
-
-          // Removed consumers
-          const removedConsumers = prevConsumers.filter(pc => !currentConsumers.find(cc => cc.id === pc.id));
-          removedConsumers.forEach(consumer => {
-            messages.push(`"${consumer.name}" left "${currentDriver.name}"'s ride.`);
-          });
-        }
-      });
-    }
-
-    return messages;
   }
 }
 

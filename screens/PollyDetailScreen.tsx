@@ -309,6 +309,11 @@ export default function PollyDetailScreen() {
   const generateNotifications = (prev: Polly, current: Polly) => {
     const messages: string[] = [];
 
+    // Check for polly description changes
+    if (prev.description !== current.description) {
+      messages.push(`Polly description updated.`);
+    }
+
     const prevDrivers = prev.drivers || [];
     const currentDrivers = current.drivers || [];
 
@@ -673,6 +678,7 @@ export default function PollyDetailScreen() {
               <View style={styles.notificationsList}>
                 <CustomText style={styles.notificationItem}>• New drivers join or leave the polly</CustomText>
                 <CustomText style={styles.notificationItem}>• New passengers join or leave a ride</CustomText>
+                <CustomText style={styles.notificationItem}>• The polly description is updated</CustomText>
               </View>
             </View>
 

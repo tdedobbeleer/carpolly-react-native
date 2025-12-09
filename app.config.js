@@ -41,6 +41,12 @@ module.exports = {
             "useFrameworks": "static"
           }
         }
+      ],
+      [
+        "expo-notifications",
+        {
+          "defaultChannel": "default",        
+        }
       ]
     ],
     "scheme": "carpolly",
