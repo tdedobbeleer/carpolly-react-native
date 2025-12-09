@@ -3,8 +3,7 @@ import { View, TouchableOpacity, StyleSheet, Modal, TextInput, FlatList, Share, 
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import * as Progress from 'react-native-progress';
-import { Notifications } from 'react-native-notifications';
-import * as NotificationsExpo from 'expo-notifications';
+import * as Notifications from 'expo-notifications';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Toast from 'react-native-simple-toast';
 import { backgroundTaskService } from '../services/backgroundTaskService';
@@ -75,17 +74,18 @@ export default function PollyDetailScreen() {
     const unsubscribe = dataService.subscribeToPolly(id, (data) => {
       if (previousPolly && data) {
         const newNotifications = generateNotifications(previousPolly, data);
-        if (notificationsEnabled && Notifications) {
-          newNotifications.forEach((message, index) => {
-            Notifications.postLocalNotification({
+        if (notificationsEnabled) {
+          newNotifications.forEach(async (message, index) => {
+            await Notifications.scheduleNotificationAsync({
               identifier: `polly-${Date.now()}-${index}`,
-              payload: {},
-              title: 'CarPolly Update',
-              body: message,
-              sound: 'default',
-              badge: 1,
-              type: 'local',
-              thread: 'polly-updates',
+              content: {
+                title: 'CarPolly Update',
+                body: message,
+                sound: 'default',
+                badge: 1,
+                data: {},
+              },
+              trigger: null,
             });
           });
         }
@@ -355,11 +355,11 @@ export default function PollyDetailScreen() {
   const requestNotificationPermission = async () => {
     try {
       // Request notification permissions using Expo's API
-      const { status: existingStatus } = await NotificationsExpo.getPermissionsAsync();
+      const { status: existingStatus } = await Notifications.getPermissionsAsync();
       let finalStatus = existingStatus;
 
       if (existingStatus !== 'granted') {
-        const { status } = await NotificationsExpo.requestPermissionsAsync();
+        const { status } = await Notifications.requestPermissionsAsync();
         finalStatus = status;
       }
 

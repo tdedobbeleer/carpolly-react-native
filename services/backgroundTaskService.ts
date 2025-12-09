@@ -2,7 +2,7 @@ import * as BackgroundTask from 'expo-background-task';
 import * as TaskManager from 'expo-task-manager';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { dataService } from './dataService';
-import { Notifications } from 'react-native-notifications';
+import * as Notifications from 'expo-notifications';
 import type { Polly } from '../models/polly.model';
 
 const POLLY_MONITOR_TASK = 'polly-monitor-task';
@@ -226,21 +226,22 @@ class BackgroundTaskService {
 
             if (notifications.length > 0) {
               console.log('[BackgroundTaskService] Posting notifications:', notifications);
-              notifications.forEach((message, index) => {
+              for (const message of notifications) {
                 const notificationId = `polly-${Date.now()}-${Math.random()}`;
                 console.log('[BackgroundTaskService] Posting notification:', notificationId, '- Message:', message);
 
-                Notifications.postLocalNotification({
+                await Notifications.scheduleNotificationAsync({
                   identifier: notificationId,
-                  payload: {},
-                  title: 'CarPolly Update',
-                  body: message,
-                  sound: 'default',
-                  badge: 1,
-                  type: 'local',
-                  thread: 'polly-updates',
+                  content: {
+                    title: 'CarPolly Update',
+                    body: message,
+                    sound: 'default',
+                    badge: 1,
+                    data: {},
+                  },
+                  trigger: null,
                 });
-              });
+              }
             } else {
               console.log('[BackgroundTaskService] No changes detected for polly:', pollyId);
             }
