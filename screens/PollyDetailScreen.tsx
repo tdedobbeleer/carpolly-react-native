@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { View, TouchableOpacity, StyleSheet, Modal, TextInput, FlatList, Share, Image, Platform, RefreshControl, AppState, AppStateStatus } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
@@ -20,6 +20,22 @@ import type { Polly } from '../models/polly.model';
 import type { Driver } from '../models/driver.model';
 import type { Consumer } from '../models/consumer.model';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+
+const funnyMessages = [
+  "Who will call shotgun first?",
+  "I hope it's not too cramped",
+  "The thinnest sits in the middle!",
+  "The oldest chooses the spot first!",
+  "I hope the trunk can handle the junk.",
+  "Don't forget to go to the bathroom before you leave.",
+  "I hope it's a SUV.",
+  "Fasten your seatbelts! The driver is responsible.",
+  "Please, keep the car clean. It's like a house. Don't go in with dirty shoes.",
+  "Let's prepare a singalong playlist! That's always nice.",
+  "Keep quiet in the back, the driver needs to concentrate.",
+  "If you don't keep quiet, you can resume the rest of the drive on foot!",
+  "Don't fight over the Nintendo, everyone get's a turn."
+];
 
 type RootStackParamList = {
   Home: undefined;
@@ -56,6 +72,14 @@ export default function PollyDetailScreen() {
   const [alertButtons, setAlertButtons] = useState<any[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [appState, setAppState] = useState<AppStateStatus>(AppState.currentState);
+  const funnyMessagesRef = useRef<{ [driverId: string]: string }>({});
+
+  const getFunnyMessage = (driverId: string) => {
+    if (!funnyMessagesRef.current[driverId]) {
+      funnyMessagesRef.current[driverId] = funnyMessages[Math.floor(Math.random() * funnyMessages.length)];
+    }
+    return funnyMessagesRef.current[driverId];
+  };
 
   // Helper function to update stored polly state for background notifications
   const updateStoredPollyState = async (pollyData: Polly) => {
@@ -659,6 +683,11 @@ export default function PollyDetailScreen() {
                   ) : (
                     <CustomText>No passengers yet 😔</CustomText>
                   )}
+                   {(item.consumers?.length || 0) >= (item.spots || 0) && (
+                     <CustomText style={styles.fullWarningText}>
+                       Car is full! {getFunnyMessage(item.id!)}
+                     </CustomText>
+                   )}
                 </View>
 
                 <View style={styles.driverActions}>
@@ -999,6 +1028,12 @@ const styles = StyleSheet.create({
   },
   driverDescription: {
     marginBottom: 10,
+  },
+  fullWarningText: {
+    color: '#dc3545',
+    fontSize: 16,
+    marginBottom: 10,
+    fontWeight: 'bold',
   },
   consumersList: {
     marginBottom: 15,
