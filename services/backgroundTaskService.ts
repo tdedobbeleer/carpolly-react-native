@@ -13,6 +13,7 @@ type MonitoringConfig = {
   [pollyId: string]: true | string[]; // true = monitor whole polly, string[] = monitor specific drivers
 };
 
+
 // Define the background task at module level so it's available when the app is not running
 TaskManager.defineTask(POLLY_MONITOR_TASK, async () => {
   console.log('[BackgroundTaskService] Background task executed at:', new Date().toISOString());
@@ -30,9 +31,14 @@ TaskManager.defineTask(POLLY_MONITOR_TASK, async () => {
     }
 
     for (const [pollyId, config] of Object.entries(monitoringConfig)) {
+      // Skip invalid configurations
+      if (typeof config !== 'boolean' && !Array.isArray(config)) {
+        console.log('[BackgroundTaskService] Skipping invalid config for polly:', pollyId, '- Config:', config);
+        continue;
+      }
       console.log('[BackgroundTaskService] Checking polly:', pollyId, '- Config:', config);
 
-      const polly = await dataService.getPolly(pollyId);
+      const polly = await dataService.getPollyFromServer(pollyId);
       if (polly) {
         console.log('[BackgroundTaskService] Retrieved polly data for:', pollyId, '- Description:', polly.description);
 
@@ -188,9 +194,22 @@ class BackgroundTaskService {
     // Load monitoring configuration from storage
     const stored = await AsyncStorage.getItem(MONITORED_POLLIES_KEY);
     if (stored) {
-      this.monitoringConfig = JSON.parse(stored);
+      const parsed = JSON.parse(stored);
+      // Filter out invalid configurations
+      this.monitoringConfig = Object.fromEntries(
+        Object.entries(parsed).filter(([pollyId, config]) =>
+          typeof config === 'boolean' || Array.isArray(config)
+        )
+      ) as MonitoringConfig;
       const monitoredCount = Object.keys(this.monitoringConfig).length;
       console.log('[BackgroundTaskService] Loaded monitoring config for', monitoredCount, 'pollies:', this.monitoringConfig);
+      // Log any invalid entries that were filtered out
+      const invalidEntries = Object.entries(parsed).filter(([pollyId, config]) =>
+        typeof config !== 'boolean' && !Array.isArray(config)
+      );
+      if (invalidEntries.length > 0) {
+        console.log('[BackgroundTaskService] Filtered out invalid config entries:', invalidEntries);
+      }
     } else {
       console.log('[BackgroundTaskService] No monitoring configuration found in storage');
     }
@@ -221,6 +240,18 @@ class BackgroundTaskService {
     await this.saveMonitoringConfig();
     console.log('[BackgroundTaskService] Saved monitoring config to storage');
 
+    // Save current polly state for initial comparison
+    try {
+      const polly = await dataService.getPollyFromServer(pollyId);
+      if (polly) {
+        const stateKey = POLLY_STATE_KEY_PREFIX + pollyId;
+        await AsyncStorage.setItem(stateKey, JSON.stringify(polly));
+        console.log('[BackgroundTaskService] Saved initial polly state for:', pollyId);
+      }
+    } catch (error) {
+      console.error('[BackgroundTaskService] Error saving initial polly state:', error);
+    }
+
     // Register background task only if this is the first item and task not already registered
     if (wasEmpty && !this.isTaskRegistered) {
       console.log('[BackgroundTaskService] Registering background task for first monitored item');
@@ -249,7 +280,7 @@ class BackgroundTaskService {
     if (currentConfig === true) {
       // Currently monitoring entire polly, need to switch to driver-specific
       // Get all drivers from current polly data
-      const polly = await dataService.getPolly(pollyId);
+      const polly = await dataService.getPollyFromServer(pollyId);
       if (polly && polly.drivers) {
         this.monitoringConfig[pollyId] = polly.drivers.map(d => d.id!).filter(id => id !== driverId);
         this.monitoringConfig[pollyId].push(driverId);

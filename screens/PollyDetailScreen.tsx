@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, TouchableOpacity, StyleSheet, Modal, TextInput, FlatList, Share, Image, Platform, RefreshControl } from 'react-native';
+import { View, TouchableOpacity, StyleSheet, Modal, TextInput, FlatList, Share, Image, Platform, RefreshControl, AppState, AppStateStatus } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import * as Progress from 'react-native-progress';
@@ -55,8 +55,32 @@ export default function PollyDetailScreen() {
   const [alertMessage, setAlertMessage] = useState('');
   const [alertButtons, setAlertButtons] = useState<any[]>([]);
   const [refreshing, setRefreshing] = useState(false);
+  const [appState, setAppState] = useState<AppStateStatus>(AppState.currentState);
+
+  // Helper function to update stored polly state for background notifications
+  const updateStoredPollyState = async (pollyData: Polly) => {
+    if (notificationsEnabled) {
+      try {
+        const stateKey = 'polly-state-' + id;
+        await AsyncStorage.setItem(stateKey, JSON.stringify(pollyData));
+        console.log('[PollyDetailScreen] Updated stored polly state for background notifications');
+      } catch (error) {
+        console.error('[PollyDetailScreen] Error updating stored polly state:', error);
+      }
+    }
+  };
 
 
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', nextAppState => {
+      setAppState(nextAppState);
+    });
+
+    return () => {
+      subscription?.remove();
+    };
+  }, []);
 
   useEffect(() => {
     // Load notification settings when component mounts
@@ -71,29 +95,39 @@ export default function PollyDetailScreen() {
 
     loadNotificationSettings();
 
-    const unsubscribe = dataService.subscribeToPolly(id, (data) => {
-      if (previousPolly && data) {
-        const newNotifications = generateNotifications(previousPolly, data);
-        if (notificationsEnabled) {
-          newNotifications.forEach(async (message, index) => {
-            await Notifications.scheduleNotificationAsync({
-              identifier: `polly-${Date.now()}-${index}`,
-              content: {
-                title: 'CarPolly Update',
-                body: message,
-                sound: 'default',
-                badge: 1,
-                data: {},
-              },
-              trigger: null,
+    let unsubscribePromise: Promise<(() => void) | null> | undefined;
+
+    if (appState === 'active') {
+      unsubscribePromise = dataService.subscribeToPolly(id, (data) => {
+        if (previousPolly && data) {
+          const newNotifications = generateNotifications(previousPolly, data);
+          if (notificationsEnabled) {
+            newNotifications.forEach(async (message, index) => {
+              await Notifications.scheduleNotificationAsync({
+                identifier: `polly-${Date.now()}-${index}`,
+                content: {
+                  title: 'CarPolly Update',
+                  body: message,
+                  sound: 'default',
+                  badge: 1,
+                  data: {},
+                  android: {
+                    channelId: 'default',
+                  },
+                } as any,
+                trigger: null,
+              });
             });
-          });
+          }
         }
-      }
-      setPreviousPolly(data);
-      setPolly(data);
-      setIsLoading(false);
-    });
+        setPreviousPolly(data);
+        setPolly(data);
+        if (data) {
+          updateStoredPollyState(data);
+        }
+        setIsLoading(false);
+      });
+    }
 
     navigation.setOptions({
       title: '',
@@ -120,15 +154,15 @@ export default function PollyDetailScreen() {
     });
 
     return () => {
-      if (unsubscribe) {
-        unsubscribe.then(unsub => {
+      if (unsubscribePromise) {
+        unsubscribePromise.then(unsub => {
           if (unsub) unsub();
-        }).catch(error => {
+        }).catch((error: any) => {
           console.error('Error unsubscribing:', error);
         });
       }
     };
-  }, [id, navigation, notificationsEnabled]);
+  }, [id, navigation, notificationsEnabled, appState]);
 
   // Expand all drivers by default when polly data is loaded
   useEffect(() => {
@@ -261,7 +295,13 @@ export default function PollyDetailScreen() {
   const handleEditPolly = async (description: string): Promise<boolean> => {
     const result = await dataService.updatePolly(id, { description });
     if (result !== null) {
-      setPolly(prev => prev ? { ...prev, description } : null);
+      setPolly(prev => {
+        const updatedPolly = prev ? { ...prev, description } : null;
+        if (updatedPolly) {
+          updateStoredPollyState(updatedPolly);
+        }
+        return updatedPolly;
+      });
       setShowEditPollyModal(false);
       return true;
     }
@@ -403,6 +443,9 @@ export default function PollyDetailScreen() {
           await dataService.saveNotificationSettings(id, true);
           // Start background task to monitor polly changes
           await backgroundTaskService.startMonitoringPolly(id);
+          // Save current polly state for background task comparison
+          const stateKey = 'polly-state-' + id;
+          await AsyncStorage.setItem(stateKey, JSON.stringify(polly));
           setNotificationsEnabled(true);
           setShowNotificationsModal(false);
           // Use toast instead of Alert for this informational message
@@ -461,6 +504,9 @@ export default function PollyDetailScreen() {
     try {
       const freshPolly = await dataService.getPolly(id);
       setPolly(freshPolly);
+      if (freshPolly) {
+        updateStoredPollyState(freshPolly);
+      }
     } catch (error) {
       console.error('Error refreshing polly:', error);
       Toast.show('Failed to refresh data.', Toast.SHORT);

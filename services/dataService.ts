@@ -4,6 +4,7 @@ import {
   doc,
   setDoc,
   getDoc,
+  getDocFromServer,
   serverTimestamp,
   onSnapshot,
   addDoc,
@@ -80,6 +81,27 @@ class DataService {
         throw new Error('Polly not found')
       }
     }, { operation: 'fetch', entity: 'polly' }, false) // Don't show toast here, let the caller handle it
+  }
+
+  async getPollyFromServer(id: string) {
+    return await errorService.withErrorHandling(async () => {
+      const docRef = doc(db, this.pollyCollection, id)
+      const docSnap = await getDocFromServer(docRef)
+      if (docSnap.exists()) {
+        const data = docSnap.data() as any
+        const driversCollection = collection(docRef, 'drivers')
+        const driversSnap = await getDocs(driversCollection)
+        const drivers = await Promise.all(driversSnap.docs.map(async (driverDoc: any) => {
+          const consumersCollection = collection(driverDoc.ref, 'consumers')
+          const consumersSnap = await getDocs(consumersCollection)
+          const consumers = consumersSnap.docs.map((consumerDoc: any) => ({ id: consumerDoc.id, ...consumerDoc.data() }))
+          return { id: driverDoc.id, ...driverDoc.data(), consumers } as Driver
+        }))
+        return { ...data, created: data.created?.toDate(), drivers } as Polly
+      } else {
+        return null
+      }
+    }, { operation: 'fetch from server', entity: 'polly' }, false) // Don't show toast here, let the caller handle it
   }
 
   async updatePolly(id: string, polly: Partial<Polly>) {
