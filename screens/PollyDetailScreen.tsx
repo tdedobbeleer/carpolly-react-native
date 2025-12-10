@@ -6,6 +6,7 @@ import * as Progress from 'react-native-progress';
 import * as Notifications from 'expo-notifications';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Toast from 'react-native-simple-toast';
+import MD5 from 'crypto-js/md5';
 import { backgroundTaskService } from '../services/backgroundTaskService';
 import CustomText from '../components/CustomText';
 import AddDriverModal from '../components/AddDriverModal';
@@ -94,6 +95,24 @@ export default function PollyDetailScreen() {
     }
   };
 
+  // Helper function to save polly hash for update detection
+  const savePollyHash = async (pollyData: Polly) => {
+    try {
+      const hash = MD5(JSON.stringify(pollyData)).toString();
+      const hashKey = 'polly-hash-' + id;
+      const stored = await AsyncStorage.getItem(hashKey);
+      if (stored) {
+        const { hash: storedHash } = JSON.parse(stored);
+        if (storedHash === hash) {
+          return; // No change, skip save
+        }
+      }
+      await AsyncStorage.setItem(hashKey, JSON.stringify({ hash, timestamp: Date.now() }));
+    } catch (error) {
+      console.error('[PollyDetailScreen] Error saving polly hash:', error);
+    }
+  };
+
 
 
   useEffect(() => {
@@ -148,6 +167,7 @@ export default function PollyDetailScreen() {
         setPolly(data);
         if (data) {
           updateStoredPollyState(data);
+          savePollyHash(data);
         }
         setIsLoading(false);
       });
@@ -530,6 +550,7 @@ export default function PollyDetailScreen() {
       setPolly(freshPolly);
       if (freshPolly) {
         updateStoredPollyState(freshPolly);
+        savePollyHash(freshPolly);
       }
     } catch (error) {
       console.error('Error refreshing polly:', error);

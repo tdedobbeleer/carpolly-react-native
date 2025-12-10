@@ -329,7 +329,14 @@ class DataService {
       const storedSettings = await AsyncStorage.getItem(storageKey)
       if (storedSettings) {
         try {
-          const { enabled } = JSON.parse(storedSettings)
+          const { enabled, timestamp } = JSON.parse(storedSettings)
+          const now = Date.now()
+          const thirtyDays = 30 * 24 * 60 * 60 * 1000
+          if (now - timestamp > thirtyDays) {
+            // Remove expired settings
+            await AsyncStorage.removeItem(storageKey)
+            return false
+          }
           return enabled || false
         } catch (error) {
           console.error('Error parsing notification settings:', error)

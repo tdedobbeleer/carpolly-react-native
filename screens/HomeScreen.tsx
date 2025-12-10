@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { View, TextInput, TouchableOpacity, StyleSheet, ScrollView, Image } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import MD5 from 'crypto-js/md5';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -25,6 +26,27 @@ export default function HomeScreen() {
   const [descriptionError, setDescriptionError] = useState('');
   const [pollyIds, setPollyIds] = useState<string[]>([]);
   const [descriptions, setDescriptions] = useState<{ [id: string]: string }>({});
+  const [updatedPollies, setUpdatedPollies] = useState<Set<string>>(new Set());
+
+  const cleanupOldHashes = async () => {
+    try {
+      const keys = await AsyncStorage.getAllKeys();
+      const oldKeys = keys.filter(key => key.startsWith('polly-hash-') || key.startsWith('notification_settings_'));
+      const now = Date.now();
+      const thirtyDays = 30 * 24 * 60 * 60 * 1000;
+      for (const key of oldKeys) {
+        const value = await AsyncStorage.getItem(key);
+        if (value) {
+          const { timestamp } = JSON.parse(value);
+          if (now - timestamp > thirtyDays) {
+            await AsyncStorage.removeItem(key);
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Error cleaning up old hashes and settings:', error);
+    }
+  };
 
   useEffect(() => {
     AsyncStorage.getItem('pollyIds').then(ids => {
@@ -33,6 +55,7 @@ export default function HomeScreen() {
         setPollyIds(parsed);
       }
     });
+    cleanupOldHashes();
   }, []);
 
   useFocusEffect(
@@ -45,6 +68,7 @@ export default function HomeScreen() {
           }
         });
       });
+      checkForUpdates();
     }, [pollyIds])
   );
 
@@ -108,6 +132,29 @@ export default function HomeScreen() {
     setDescriptions({});
   };
 
+  const checkForUpdates = async () => {
+    const updated = new Set<string>();
+    for (const id of pollyIds) {
+      try {
+        const polly = await dataService.getPolly(id);
+        if (polly) {
+          const currentHash = MD5(JSON.stringify(polly)).toString();
+          const hashKey = 'polly-hash-' + id;
+          const stored = await AsyncStorage.getItem(hashKey);
+          if (stored) {
+            const { hash } = JSON.parse(stored);
+            if (hash !== currentHash) {
+              updated.add(id);
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Error checking updates for polly:', id, error);
+      }
+    }
+    setUpdatedPollies(updated);
+  };
+
   return (
     <LinearGradient
       colors={['#ff7e5f', '#feb47b', '#ff6b6b', '#4ecdc4', '#45b7d1', '#96ceb4']}
@@ -154,7 +201,10 @@ export default function HomeScreen() {
                     style={styles.pollyContent}
                     onPress={() => navigation.navigate('PollyDetail', { id })}
                   >
-                    <CustomText>{descriptions[id] || 'Loading...'}</CustomText>
+                    <View style={styles.pollyTextContainer}>
+                      <CustomText>{descriptions[id] || 'Loading...'}</CustomText>
+                      {updatedPollies.has(id) && <CustomText style={styles.updatedPill}>Updated</CustomText>}
+                    </View>
                   </TouchableOpacity>
                   <TouchableOpacity onPress={() => removePolly(id)}>
                     <Ionicons name="trash" size={16} color="red" />
@@ -273,6 +323,21 @@ const styles = StyleSheet.create({
   },
   pollyContent: {
     flex: 1,
+  },
+  pollyTextContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+  },
+  updatedPill: {
+    fontSize: 10,
+    color: '#fff',
+    backgroundColor: '#28a745',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 10,
+    marginLeft: 8,
+    fontWeight: 'bold',
   },
   parrotDecoration: {
     width: 100,
