@@ -7,7 +7,7 @@
     "production": {
       "node": "22.21.1",
       "android": {
-        "buildType": "apk"
+        "buildType": "aab"
       }
     },
     "preview": {
