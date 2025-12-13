@@ -60,14 +60,31 @@ export default function HomeScreen() {
 
   useFocusEffect(
     React.useCallback(() => {
-      // Fetch descriptions when screen is focused
-      pollyIds.forEach((id: string) => {
-        dataService.getPolly(id).then(polly => {
-          if (polly) {
-            setDescriptions(prev => ({ ...prev, [id]: polly.description || 'Unknown' }));
+      // Fetch descriptions when screen is focused and clean up non-existent pollies
+      const fetchDescriptionsAndClean = async () => {
+        const validIds: string[] = [];
+        const newDescriptions: { [id: string]: string } = {};
+
+        for (const id of pollyIds) {
+          try {
+            const polly = await dataService.getPolly(id);
+            if (polly) {
+              validIds.push(id);
+              newDescriptions[id] = polly.description || 'Unknown';
+            }
+          } catch (error) {
+            console.log(`Polly ${id} not found, removing from list`);
           }
-        });
-      });
+        }
+
+        // Update state with only valid pollies
+        if (validIds.length !== pollyIds.length) {
+          await savePollyIds(validIds);
+        }
+        setDescriptions(newDescriptions);
+      };
+
+      fetchDescriptionsAndClean();
       checkForUpdates();
     }, [pollyIds])
   );

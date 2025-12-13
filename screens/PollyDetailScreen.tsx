@@ -173,6 +173,18 @@ export default function PollyDetailScreen() {
       });
     }
 
+    return () => {
+      if (unsubscribePromise) {
+        unsubscribePromise.then(unsub => {
+          if (unsub) unsub();
+        }).catch((error: any) => {
+          console.error('Error unsubscribing:', error);
+        });
+      }
+    };
+  }, [id, navigation, notificationsEnabled, appState]);
+
+  useEffect(() => {
     navigation.setOptions({
       title: '',
       headerTitle: () => <Image source={require('../assets/logo.png')} style={{ width: 80, height: 80, resizeMode: 'contain' }} />,
@@ -182,7 +194,7 @@ export default function PollyDetailScreen() {
           <Ionicons name="arrow-back" size={24} color="black" />
         </TouchableOpacity>
       ),
-      headerRight: () => (
+      headerRight: () => polly ? (
         <View style={{ flexDirection: 'row', marginRight: 10, alignItems: 'center' }}>
           <TouchableOpacity onPress={handleShare} style={{ marginRight: 15, padding: 5 }}>
             <Ionicons name="share-social" size={24} color="black" />
@@ -194,19 +206,9 @@ export default function PollyDetailScreen() {
             )}
           </TouchableOpacity>
         </View>
-      )
+      ) : null
     });
-
-    return () => {
-      if (unsubscribePromise) {
-        unsubscribePromise.then(unsub => {
-          if (unsub) unsub();
-        }).catch((error: any) => {
-          console.error('Error unsubscribing:', error);
-        });
-      }
-    };
-  }, [id, navigation, notificationsEnabled, appState]);
+  }, [navigation, polly, notificationsEnabled]);
 
   // Expand all drivers by default when polly data is loaded
   useEffect(() => {
@@ -329,7 +331,7 @@ export default function PollyDetailScreen() {
   const handleShare = async () => {
     try {
       await Share.share({
-        message: `Join my CarPolly: https://carpolly.com/polly/${id}`,
+        message: `Join my CarPolly: carpolly://polly/${id}`,
       });
     } catch (error) {
       console.log('Error sharing:', error);
@@ -570,7 +572,12 @@ export default function PollyDetailScreen() {
 
   if (!polly) {
     return (
-      <View style={styles.errorContainer}>
+      <LinearGradient
+        colors={['#ff7e5f', '#feb47b', '#ff6b6b', '#4ecdc4', '#45b7d1', '#96ceb4']}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 0 }}
+        style={styles.errorContainer}
+      >
         <View style={styles.errorCard}>
           <CustomText style={styles.notFoundText}>Polly not found!</CustomText>
           <CustomText style={styles.errorSubtext}>The polly you're looking for doesn't exist or has been removed. How sad <Ionicons name="sad-outline"></Ionicons></CustomText>
@@ -578,7 +585,7 @@ export default function PollyDetailScreen() {
             <CustomText style={styles.goBackText}>Go Back</CustomText>
           </TouchableOpacity>
         </View>
-      </View>
+      </LinearGradient>
     );
   }
 
