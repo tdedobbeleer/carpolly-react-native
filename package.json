@@ -1,6 +1,6 @@
 {
   "name": "carpolly-react-native",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "main": "index.ts",
   "scripts": {
     "eas-build-pre-install": "npm i -g npm@11.6.3",
