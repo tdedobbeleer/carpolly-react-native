@@ -22,6 +22,29 @@ import type { Consumer } from '../models/consumer.model'
 class DataService {
   private pollyCollection = 'pollies'
 
+  private sortByGuid<T extends { id?: string; guid?: string }>(items: T[]): T[] {
+    return [...items].sort((a, b) => {
+      const aKey = (a.guid ?? a.id ?? '').toString()
+      const bKey = (b.guid ?? b.id ?? '').toString()
+      return aKey.localeCompare(bKey)
+    })
+  }
+
+  private normalizePollyCollections(polly: Polly): Polly {
+    const drivers = this.sortByGuid(polly.drivers ?? []).map((driver: any) => ({
+      ...driver,
+      consumers: this.sortByGuid(driver.consumers ?? [])
+    }))
+
+    const consumers = this.sortByGuid(polly.consumers ?? [])
+
+    return {
+      ...polly,
+      drivers,
+      consumers
+    }
+  }
+
   async createPolly(id: string, polly: Polly) {
     // Validate UUID format
     const uuidValidation = ValidationService.validateUUID(id)
@@ -40,9 +63,16 @@ class DataService {
 
     return await errorService.withErrorHandling(async () => {
       const docRef = doc(db, this.pollyCollection, id)
-      const { drivers, ...pollyData } = polly
+      const { drivers, consumers, ...pollyData } = polly
       const data = { ...pollyData, created: serverTimestamp() }
       await setDoc(docRef, data)
+
+      if (consumers && consumers.length > 0) {
+        const consumersCollection = docRef.collection('consumers')
+        for (const consumer of consumers) {
+          await consumersCollection.add(consumer)
+        }
+      }
 
       if (drivers && drivers.length > 0) {
         const driversCollection = docRef.collection('drivers')
@@ -76,7 +106,12 @@ class DataService {
           const consumers = consumersSnap.docs.map((consumerDoc: any) => ({ id: consumerDoc.id, ...consumerDoc.data() }))
           return { id: driverDoc.id, ...driverDoc.data(), consumers } as Driver
         }))
-        return { ...data, created: data.created?.toDate(), drivers } as Polly
+
+        const consumersCollection = collection(docRef, 'consumers')
+        const consumersSnap = await getDocs(consumersCollection)
+        const consumers = consumersSnap.docs.map((consumerDoc: any) => ({ id: consumerDoc.id, ...consumerDoc.data() }))
+
+        return this.normalizePollyCollections({ ...data, created: data.created?.toDate(), drivers, consumers } as Polly)
       } else {
         throw new Error('Polly not found')
       }
@@ -91,13 +126,18 @@ class DataService {
         const data = docSnap.data() as any
         const driversCollection = collection(docRef, 'drivers')
         const driversSnap = await getDocs(driversCollection)
-        const drivers = await Promise.all(driversSnap.docs.map(async (driverDoc: any) => {
+        const drivers = (await Promise.all(driversSnap.docs.map(async (driverDoc: any) => {
           const consumersCollection = collection(driverDoc.ref, 'consumers')
           const consumersSnap = await getDocs(consumersCollection)
-          const consumers = consumersSnap.docs.map((consumerDoc: any) => ({ id: consumerDoc.id, ...consumerDoc.data() }))
+          const consumers = consumersSnap.docs.map((consumerDoc: any) => ({ id: consumerDoc.id, ...consumerDoc.data() })).sort((a: any, b: any) => a.id.localeCompare(b.id))
           return { id: driverDoc.id, ...driverDoc.data(), consumers } as Driver
-        }))
-        return { ...data, created: data.created?.toDate(), drivers } as Polly
+        }))).sort((a: any, b: any) => a.id.localeCompare(b.id))
+
+        const consumersCollection = collection(docRef, 'consumers')
+        const consumersSnap = await getDocs(consumersCollection)
+        const consumers = consumersSnap.docs.map((consumerDoc: any) => ({ id: consumerDoc.id, ...consumerDoc.data() })).sort((a: any, b: any) => a.id.localeCompare(b.id))
+
+        return this.normalizePollyCollections({ ...data, created: data.created?.toDate(), drivers, consumers } as Polly)
       } else {
         return null
       }
@@ -218,10 +258,70 @@ class DataService {
     }, { operation: 'delete', entity: 'passenger' }, true) // Show toast for user feedback
   }
 
+  async createDanglingConsumer(pollyId: string, consumer: Consumer) {
+    return await errorService.withErrorHandling(async () => {
+      // Validate inputs
+      const pollyUuidValidation = ValidationService.validateUUID(pollyId)
+      if (!pollyUuidValidation.isValid) {
+        throw new Error('Invalid Polly ID format')
+      }
+
+      if (!consumer.name) {
+        throw new Error('Consumer name is required')
+      }
+      const consumerValidation = ValidationService.validateConsumerForm(consumer.name, consumer.comments || '')
+      if (!consumerValidation.isValid) {
+        throw new Error(Object.values(consumerValidation.errors).join(', '))
+      }
+
+      const pollyDocRef = doc(db, this.pollyCollection, pollyId)
+      const consumersCollection = collection(pollyDocRef, 'consumers')
+      const data: any = { name: consumer.name };
+      if (consumer.comments) data.comments = consumer.comments;
+      const consumerDocRef = await addDoc(consumersCollection, data)
+      return consumerDocRef.id
+    }, { operation: 'create', entity: 'passenger' }, true) // Show toast for user feedback
+  }
+
+  async deleteDanglingConsumer(pollyId: string, consumerId: string) {
+    return await errorService.withErrorHandling(async () => {
+      const pollyDocRef = doc(db, this.pollyCollection, pollyId)
+      const consumerDocRef = doc(collection(pollyDocRef, 'consumers'), consumerId)
+      await deleteDoc(consumerDocRef)
+      return true;
+    }, { operation: 'delete', entity: 'passenger' }, true) // Show toast for user feedback
+  }
+
+  async moveConsumerToDriver(pollyId: string, consumerId: string, driverId: string) {
+    return await errorService.withErrorHandling(async () => {
+      // First get the consumer data
+      const pollyDocRef = doc(db, this.pollyCollection, pollyId)
+      const consumerDocRef = doc(collection(pollyDocRef, 'consumers'), consumerId)
+      const consumerSnap = await getDoc(consumerDocRef)
+
+      if (!consumerSnap.exists()) {
+        throw new Error('Consumer not found')
+      }
+
+      const consumerData = consumerSnap.data()
+
+      // Create consumer in driver
+      const driverDocRef = doc(collection(pollyDocRef, 'drivers'), driverId)
+      const consumersCollection = collection(driverDocRef, 'consumers')
+      await addDoc(consumersCollection, consumerData)
+
+      // Delete dangling consumer
+      await deleteDoc(consumerDocRef)
+
+      return true;
+    }, { operation: 'move', entity: 'passenger' }, true) // Show toast for user feedback
+  }
+
   subscribeToPolly(id: string, callback: (polly: Polly | null) => void) {
     return errorService.withErrorHandling(async () => {
       const docRef = doc(db, this.pollyCollection, id)
       const driversCollection = collection(docRef, 'drivers')
+      const consumersCollection = collection(docRef, 'consumers')
 
       const fetchAndCallback = async () => {
         try {
@@ -229,13 +329,17 @@ class DataService {
           if (docSnap.exists()) {
             const data = docSnap.data()
             const driversSnap = await getDocs(driversCollection)
-            const drivers = await Promise.all(driversSnap.docs.map(async (driverDoc: any) => {
+            const drivers = (await Promise.all(driversSnap.docs.map(async (driverDoc: any) => {
               const consumersCollection = collection(driverDoc.ref, 'consumers')
               const consumersSnap = await getDocs(consumersCollection)
-              const consumers = consumersSnap.docs.map((consumerDoc: any) => ({ id: consumerDoc.id, ...consumerDoc.data() }))
+              const consumers = consumersSnap.docs.map((consumerDoc: any) => ({ id: consumerDoc.id, ...consumerDoc.data() })).sort((a: any, b: any) => a.id.localeCompare(b.id))
               return { id: driverDoc.id, ...driverDoc.data(), consumers } as Driver
-            }))
-            callback({ ...(data as any), created: (data as any)?.created?.toDate(), drivers } as Polly)
+            }))).sort((a: any, b: any) => a.id.localeCompare(b.id))
+
+            const consumersSnap = await getDocs(consumersCollection)
+            const consumers = consumersSnap.docs.map((consumerDoc: any) => ({ id: consumerDoc.id, ...consumerDoc.data() })).sort((a: any, b: any) => a.id.localeCompare(b.id))
+
+            callback(this.normalizePollyCollections({ ...(data as any), created: (data as any)?.created?.toDate(), drivers, consumers } as Polly))
           } else {
             callback(null)
           }
@@ -252,6 +356,11 @@ class DataService {
 
       // Listen to changes in the drivers collection
       const unsubscribeDrivers = onSnapshot(driversCollection, () => {
+        fetchAndCallback()
+      })
+
+      // Listen to changes in dangling consumers collection
+      const unsubscribeDanglingConsumers = onSnapshot(consumersCollection, () => {
         fetchAndCallback()
       })
 
@@ -274,6 +383,7 @@ class DataService {
       return () => {
         unsubscribePolly()
         unsubscribeDrivers()
+        unsubscribeDanglingConsumers()
         unsubscribeDriversSnap()
         unsubscribeConsumers.forEach(unsub => unsub())
       }
@@ -296,7 +406,12 @@ class DataService {
               const consumers = consumersSnap.docs.map((consumerDoc: any) => ({ id: consumerDoc.id, ...consumerDoc.data() }))
               return { id: driverDoc.id, ...driverDoc.data(), consumers } as Driver
             }))
-            return { id: pollyDoc.id, ...data, created: data?.created?.toDate(), drivers } as Polly
+
+            const consumersCollection = collection(pollyDoc.ref, 'consumers')
+            const consumersSnap = await getDocs(consumersCollection)
+            const consumers = consumersSnap.docs.map((consumerDoc: any) => ({ id: consumerDoc.id, ...consumerDoc.data() }))
+
+            return this.normalizePollyCollections({ id: pollyDoc.id, ...data, created: data?.created?.toDate(), drivers, consumers } as Polly)
           }))
           callback(pollies)
         } catch (error) {
