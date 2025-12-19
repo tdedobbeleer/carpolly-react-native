@@ -356,13 +356,6 @@ export default function PollyDetailScreen() {
     setIsDragging(false);
   };
 
-  const handleDragOverDriver = (driverId: string) => {
-    setDragOverDriver(driverId);
-  };
-
-  const handleDragLeaveDriver = () => {
-    setDragOverDriver(null);
-  };
 
   const handleDropOnDriver = async (driverId: string) => {
     const driver = polly?.drivers?.find(d => d.id === driverId);
