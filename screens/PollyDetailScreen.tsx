@@ -62,7 +62,11 @@ export default function PollyDetailScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [appState, setAppState] = useState<AppStateStatus>(AppState.currentState);
   const [draggedConsumer, setDraggedConsumer] = useState<Consumer | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
   const [isAddingToDriver, setIsAddingToDriver] = useState(false);
+  const [dragOverDriver, setDragOverDriver] = useState<string | null>(null);
+  const [driverPositions, setDriverPositions] = useState<{ [driverId: string]: { x: number, y: number, width: number, height: number } }>({});
+  const driverRefs = React.useRef<{ [driverId: string]: any }>({});
   const [userSettings, setUserSettings] = useState<UserSettings>({
     name: '',
     driverDescription: '',
@@ -191,6 +195,8 @@ export default function PollyDetailScreen() {
       setExpandedDrivers(newExpanded);
       setDriverNotificationsEnabled(newDriverNotifications);
       setExpandAll(true);
+      // Reset driver positions when drivers change
+      setDriverPositions({});
     }
   }, [polly?.drivers, id]);
 
@@ -338,20 +344,34 @@ export default function PollyDetailScreen() {
   };
 
   const handleDragStart = (consumer: Consumer) => {
+    console.log('Drag started for consumer:', consumer.name);
     setDraggedConsumer(consumer);
+    setIsDragging(true);
   };
 
   const handleDragEnd = () => {
-    // Clear drag state after a short delay to allow drop to complete
-    setTimeout(() => {
-      setDraggedConsumer(null);
-    }, 100);
+    console.log('Drag ended');
+    setDragOverDriver(null);
+    setDraggedConsumer(null);
+    setIsDragging(false);
+  };
+
+  const handleDragOverDriver = (driverId: string) => {
+    setDragOverDriver(driverId);
+  };
+
+  const handleDragLeaveDriver = () => {
+    setDragOverDriver(null);
   };
 
   const handleDropOnDriver = async (driverId: string) => {
-    if (draggedConsumer?.id) {
+    const driver = polly?.drivers?.find(d => d.id === driverId);
+    if (draggedConsumer?.id && driver && (driver.consumers?.length || 0) < (driver.spots || 0)) {
       await dataService.moveConsumerToDriver(id, draggedConsumer.id, driverId);
       setDraggedConsumer(null);
+      setIsDragging(false);
+      setDragOverDriver(null);
+      Toast.show(`${draggedConsumer.name} joined ${driver.name}'s ride!`, Toast.SHORT);
     }
   };
 
@@ -656,9 +676,9 @@ export default function PollyDetailScreen() {
         })}
         keyExtractor={(item, index) => item.id || index.toString()}
         contentContainerStyle={styles.content}
-        scrollEnabled={!draggedConsumer}
+        scrollEnabled={!isDragging}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} enabled={!draggedConsumer} />
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} enabled={!isDragging} />
         }
         ListHeaderComponent={
           <>
@@ -666,7 +686,6 @@ export default function PollyDetailScreen() {
               <CustomText type="h1" style={styles.title}>{polly.description}</CustomText>
             </TouchableOpacity>
 
-            {/* Passengers Section */}
             <PassengersList
               consumers={polly.consumers || []}
               expandedComments={expandedComments}
@@ -675,6 +694,10 @@ export default function PollyDetailScreen() {
               onDragEnd={handleDragEnd}
               onToggleComments={toggleComments}
               onDeleteConsumer={handleDeleteDanglingConsumer}
+              dragOverDriver={dragOverDriver}
+              onDrop={handleDropOnDriver}
+              driverPositions={driverPositions}
+              onDragOver={setDragOverDriver}
             />
 
             <View style={styles.driversHeader}>
@@ -731,117 +754,130 @@ export default function PollyDetailScreen() {
             )}
           </>
         }
-        renderItem={({ item, index }) => (
-          <View
-            style={[
-              styles.driverCard,
-              draggedConsumer && (item.consumers?.length || 0) < (item.spots || 0) && styles.dropTarget
-            ]}
-            onTouchEnd={() => draggedConsumer && (item.consumers?.length || 0) < (item.spots || 0) && handleDropOnDriver(item.id!)}
-          >
-            <TouchableOpacity onPress={() => openEditDriverModal(item)}>
-              <View style={styles.driverHeader}>
-                <View style={styles.nameContainer}>
-                  <CustomText type="h3" style={styles.driverName}>{item.name}</CustomText>
-                </View>
-                <View style={styles.headerRight}>
-                  {!notificationsEnabled && (
-                    <TouchableOpacity
-                      style={styles.driverNotificationButton}
-                      onPress={() => {
-                        setSelectedDriverForNotifications(item);
-                        setShowDriverNotificationsModal(true);
-                      }}
-                    >
-                      <Ionicons name="notifications" size={20} color="black" />
-                      {driverNotificationsEnabled[item.id!] && (
-                        <View style={styles.driverNotificationBadge} />
-                      )}
-                    </TouchableOpacity>
-                  )}
-                  <TouchableOpacity style={styles.progressContainer} onPress={() => toggleDriverExpansion(item.id!)}>
-                    <Progress.Circle
-                      size={40}
-                      progress={(item.consumers?.length || 0) / (item.spots || 1)}
-                      showsText
-                      formatText={() => `${item.consumers?.length || 0}/${item.spots || 0}`}
-                      textStyle={{ fontSize: 12 }}
-                      color="#007bff"
-                      unfilledColor="#e0e0e0"
-                      borderWidth={0}
-                    />
-                    <Ionicons
-                      name={expandedDrivers[item.id!] ? "chevron-up" : "chevron-down"}
-                      size={20}
-                      color="black"
-                      style={styles.arrowIcon}
-                    />
-                  </TouchableOpacity>
-                </View>
-              </View>
-            </TouchableOpacity>
-            <CustomText style={styles.driverDescription}>Meeting details: {item.description}</CustomText>
-            {expandedDrivers[item.id!] && (
-              <>
-                <View style={styles.consumersList}>
-                  {item.consumers && item.consumers.length > 0 ? (
-                    item.consumers.map((consumer, consumerIndex) => (
-                      <View key={consumer.id || consumerIndex}>
-                        <View style={styles.consumerItem}>
-                          <CustomText>{consumer.name}</CustomText>
-                          <View style={styles.consumerActions}>
-                            {consumer.comments && (
-                              <TouchableOpacity onPress={() => toggleComments(consumer.id || consumerIndex.toString())}>
-                                <Ionicons name="chatbubble" size={16} color="black" />
-                              </TouchableOpacity>
-                            )}
-                            <TouchableOpacity
-                              onPress={() => consumer.id && item.id && handleDeleteConsumer(item.id, consumer.id)}
-                              style={styles.deleteButton}
-                            >
-                              <Ionicons name="trash" size={16} color="black" />
-                            </TouchableOpacity>
-                          </View>
-                        </View>
-                        {expandedComments[consumer.id || consumerIndex.toString()] && consumer.comments && (
-                          <View style={styles.commentContainer}>
-                            <CustomText style={styles.commentText}>{consumer.comments}</CustomText>
-                          </View>
-                        )}
-                      </View>
-                    ))
-                  ) : (
-                    <CustomText>No passengers yet 😔</CustomText>
-                  )}
-                   {(item.consumers?.length || 0) >= (item.spots || 0) && (
-                     <CustomText style={styles.fullWarningText}>
-                       Car is full! {getFunnyMessage(item.id!)}
-                     </CustomText>
-                   )}
-                </View>
+        renderItem={({ item, index }) => {
+          const isDropTarget = draggedConsumer && (item.consumers?.length || 0) < (item.spots || 0);
+          const isDragOver = dragOverDriver === item.id;
 
-                <View style={styles.driverActions}>
-                  <TouchableOpacity
-                    style={[styles.joinButton, (item.consumers?.length || 0) >= (item.spots || 0) && styles.disabledButton]}
-                    onPress={() => openAddConsumerModal(index)}
-                    disabled={(item.consumers?.length || 0) >= (item.spots || 0)}
-                  >
-                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                      <Ionicons name="person" size={16} color="black" />
-                      <CustomText>I wanna join this ride!</CustomText>
-                    </View>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    onPress={() => item.id && handleDeleteDriver(item.id)}
-                    style={styles.deleteDriverButton}
-                  >
-                    <CustomText style={styles.deleteDriverText}>Remove driver</CustomText>
-                  </TouchableOpacity>
+          return (
+            <View
+              style={[
+                styles.driverCard,
+                isDropTarget && styles.dropTarget,
+                isDragOver && styles.dragOverTarget
+              ]}
+              ref={(ref) => { if (ref) driverRefs.current[item.id!] = ref; }}
+              onLayout={() => {
+                if (driverRefs.current[item.id!]) {
+                  driverRefs.current[item.id!].measure((x: number, y: number, width: number, height: number, pageX: number, pageY: number) => {
+                    setDriverPositions(prev => ({ ...prev, [item.id!]: { x: pageX, y: pageY, width, height } }));
+                  });
+                }
+              }}
+            >
+              <TouchableOpacity onPress={() => openEditDriverModal(item)}>
+                <View style={styles.driverHeader}>
+                  <View style={styles.nameContainer}>
+                    <CustomText type="h3" style={styles.driverName}>{item.name}</CustomText>
+                  </View>
+                  <View style={styles.headerRight}>
+                    {!notificationsEnabled && (
+                      <TouchableOpacity
+                        style={styles.driverNotificationButton}
+                        onPress={() => {
+                          setSelectedDriverForNotifications(item);
+                          setShowDriverNotificationsModal(true);
+                        }}
+                      >
+                        <Ionicons name="notifications" size={20} color="black" />
+                        {driverNotificationsEnabled[item.id!] && (
+                          <View style={styles.driverNotificationBadge} />
+                        )}
+                      </TouchableOpacity>
+                    )}
+                    <TouchableOpacity style={styles.progressContainer} onPress={() => toggleDriverExpansion(item.id!)}>
+                      <Progress.Circle
+                        size={40}
+                        progress={(item.consumers?.length || 0) / (item.spots || 1)}
+                        showsText
+                        formatText={() => `${item.consumers?.length || 0}/${item.spots || 0}`}
+                        textStyle={{ fontSize: 12 }}
+                        color="#007bff"
+                        unfilledColor="#e0e0e0"
+                        borderWidth={0}
+                      />
+                      <Ionicons
+                        name={expandedDrivers[item.id!] ? "chevron-up" : "chevron-down"}
+                        size={20}
+                        color="black"
+                        style={styles.arrowIcon}
+                      />
+                    </TouchableOpacity>
+                  </View>
                 </View>
-              </>
-            )}
-          </View>
-        )}
+              </TouchableOpacity>
+              <CustomText style={styles.driverDescription}>Meeting details: {item.description}</CustomText>
+              {expandedDrivers[item.id!] && (
+                <>
+                  <View style={styles.consumersList}>
+                    {item.consumers && item.consumers.length > 0 ? (
+                      item.consumers.map((consumer, consumerIndex) => (
+                        <View key={consumer.id || consumerIndex}>
+                          <View style={styles.consumerItem}>
+                            <CustomText>{consumer.name}</CustomText>
+                            <View style={styles.consumerActions}>
+                              {consumer.comments && (
+                                <TouchableOpacity onPress={() => toggleComments(consumer.id || consumerIndex.toString())}>
+                                  <Ionicons name="chatbubble" size={16} color="black" />
+                                </TouchableOpacity>
+                              )}
+                              <TouchableOpacity
+                                onPress={() => consumer.id && item.id && handleDeleteConsumer(item.id, consumer.id)}
+                                style={styles.deleteButton}
+                              >
+                                <Ionicons name="trash" size={16} color="black" />
+                              </TouchableOpacity>
+                            </View>
+                          </View>
+                          {expandedComments[consumer.id || consumerIndex.toString()] && consumer.comments && (
+                            <View style={styles.commentContainer}>
+                              <CustomText style={styles.commentText}>{consumer.comments}</CustomText>
+                            </View>
+                          )}
+                        </View>
+                      ))
+                    ) : (
+                      <CustomText>No passengers yet 😔</CustomText>
+                    )}
+                     {(item.consumers?.length || 0) >= (item.spots || 0) && (
+                       <CustomText style={styles.fullWarningText}>
+                         Car is full! {getFunnyMessage(item.id!)}
+                       </CustomText>
+                     )}
+                  </View>
+
+                  <View style={styles.driverActions}>
+                    <TouchableOpacity
+                      style={[styles.joinButton, (item.consumers?.length || 0) >= (item.spots || 0) && styles.disabledButton]}
+                      onPress={() => openAddConsumerModal(index)}
+                      disabled={(item.consumers?.length || 0) >= (item.spots || 0)}
+                    >
+                      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                        <Ionicons name="person" size={16} color="black" />
+                        <CustomText>I wanna join this ride!</CustomText>
+                      </View>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      onPress={() => item.id && handleDeleteDriver(item.id)}
+                      style={styles.deleteDriverButton}
+                    >
+                      <CustomText style={styles.deleteDriverText}>Remove driver</CustomText>
+                    </TouchableOpacity>
+                  </View>
+                </>
+              )}
+            </View>
+          );
+        }}
       />
 
       <AddDriverModal
@@ -1154,11 +1190,18 @@ const styles = StyleSheet.create({
     padding: 15,
     borderRadius: 8,
     marginBottom: 15,
+    elevation: 0,
   },
   dropTarget: {
     borderWidth: 2,
     borderColor: '#28a745',
     borderStyle: 'dashed',
+  },
+  dragOverTarget: {
+    borderWidth: 3,
+    borderColor: '#007bff',
+    borderStyle: 'solid',
+    backgroundColor: 'rgba(0, 123, 255, 0.1)',
   },
   driverHeader: {
     flexDirection: 'row',
