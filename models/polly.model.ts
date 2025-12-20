@@ -7,4 +7,5 @@ export interface Polly {
   drivers?: Driver[]
   consumers?: Consumer[]
   created?: Date
+  updatedAt?: Date
 }

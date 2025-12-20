@@ -1,35 +1,32 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import MD5 from 'crypto-js/md5';
 import type { Polly } from '../models/polly.model';
 
 const POLLY_STATE_PREFIX = 'polly-state-';
-const POLLY_HASH_PREFIX = 'polly-hash-';
+const POLLY_TIMESTAMP_PREFIX = 'polly-timestamp-';
 const NOTIFICATION_SETTINGS_PREFIX = 'notification_settings_';
 
 const getPollyStateKey = (pollyId: string) => `${POLLY_STATE_PREFIX}${pollyId}`;
-const getPollyHashKey = (pollyId: string) => `${POLLY_HASH_PREFIX}${pollyId}`;
+const getPollyTimestampKey = (pollyId: string) => `${POLLY_TIMESTAMP_PREFIX}${pollyId}`;
 
-const computePollyHash = (pollyData: Polly): string => MD5(JSON.stringify(pollyData)).toString();
+type StoredTimestamp = { updatedAt: string };
 
-type StoredHash = { hash: string; timestamp: number };
-
-const getStoredPollyHash = async (pollyId: string): Promise<StoredHash | null> => {
+const getStoredPollyTimestamp = async (pollyId: string): Promise<StoredTimestamp | null> => {
   try {
-    const stored = await AsyncStorage.getItem(getPollyHashKey(pollyId));
+    const stored = await AsyncStorage.getItem(getPollyTimestampKey(pollyId));
     if (!stored) return null;
-    const parsed = JSON.parse(stored) as Partial<StoredHash>;
-    if (!parsed || typeof parsed.hash !== 'string' || typeof parsed.timestamp !== 'number') return null;
-    return { hash: parsed.hash, timestamp: parsed.timestamp };
+    const parsed = JSON.parse(stored) as Partial<StoredTimestamp>;
+    if (!parsed || typeof parsed.updatedAt !== 'string') return null;
+    return { updatedAt: parsed.updatedAt };
   } catch {
     return null;
   }
 };
 
-export const cleanupOldHashesAndSettings = async (): Promise<void> => {
+export const cleanupOldSettings = async (): Promise<void> => {
   try {
     const keys = await AsyncStorage.getAllKeys();
     const oldKeys = keys.filter(
-      key => key.startsWith(POLLY_HASH_PREFIX) || key.startsWith(NOTIFICATION_SETTINGS_PREFIX)
+      key => key.startsWith(NOTIFICATION_SETTINGS_PREFIX)
     );
     const now = Date.now();
     const thirtyDays = 30 * 24 * 60 * 60 * 1000;
@@ -43,15 +40,14 @@ export const cleanupOldHashesAndSettings = async (): Promise<void> => {
       }
     }
   } catch (error) {
-    console.error('Error cleaning up old hashes and settings:', error);
+    console.error('Error cleaning up old timestamps and settings:', error);
   }
 };
 
 // Helper function to update stored polly state for background notifications
-export const updateStoredPollyState = async (pollyData: Polly, notificationsEnabled: boolean) => {
+export const updateStoredPollyState = async (pollyId: string, pollyData: Polly, notificationsEnabled: boolean) => {
   if (!notificationsEnabled) return;
 
-  const pollyId = pollyData.id;
   if (!pollyId) return;
 
   try {
@@ -63,26 +59,23 @@ export const updateStoredPollyState = async (pollyData: Polly, notificationsEnab
   }
 };
 
-// Helper function to save polly hash for update detection
-export const savePollyHash = async (pollyData: Polly) => {
-  const pollyId = pollyData.id;
-  if (!pollyId) return;
+// Helper function to save polly timestamp for update detection
+export const savePollyTimestamp = async (pollyId: string, updatedAt: Date) => {
+  if (!pollyId || !updatedAt) return;
 
   try {
-    const hash = computePollyHash(pollyData);
-    const stored = await getStoredPollyHash(pollyId);
-    if (stored?.hash === hash) {
-      return; // No change, skip save
-    }
-    await AsyncStorage.setItem(getPollyHashKey(pollyId), JSON.stringify({ hash, timestamp: Date.now() }));
+    await AsyncStorage.setItem(getPollyTimestampKey(pollyId), JSON.stringify({ 
+      updatedAt: updatedAt.toISOString()
+    }));
   } catch (error) {
-    console.error('[PollyDetailScreen] Error saving polly hash:', error);
+    console.error('[PollyDetailScreen] Error saving polly timestamp:', error);
   }
 };
 
-export const isPollyUpdated = async (pollyId: string, pollyData: Polly): Promise<boolean> => {
-  const stored = await getStoredPollyHash(pollyId);
-  if (!stored?.hash) return false;
-  const currentHash = computePollyHash(pollyData);
-  return stored.hash !== currentHash;
+export const isPollyUpdated = async (pollyId: string, updatedAt: Date | undefined): Promise<boolean> => {
+  const stored = await getStoredPollyTimestamp(pollyId);
+  if (!stored?.updatedAt || !updatedAt) return false;
+  
+  const currentUpdatedAt = updatedAt.toISOString();
+  return stored.updatedAt !== currentUpdatedAt;
 };

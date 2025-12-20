@@ -17,7 +17,7 @@ import PassengersList from '../components/PassengersList';
 import { useRoute, useNavigation } from '@react-navigation/native';
 import { dataService } from '../services/dataService';
 import { ValidationService } from '../services/validationService';
-import { updateStoredPollyState, savePollyHash } from '../utils/pollyUtils';
+import { updateStoredPollyState, savePollyTimestamp } from '../utils/pollyUtils';
 import { useFunnyMessages } from '../hooks/useFunnyMessages';
 import { getUserSettings, UserSettings } from '../utils/userSettings';
 import type { Polly } from '../models/polly.model';
@@ -137,8 +137,8 @@ export default function PollyDetailScreen() {
         setPreviousPolly(data);
         setPolly(data);
         if (data) {
-          updateStoredPollyState(data, notificationsEnabled);
-          savePollyHash(data);
+          updateStoredPollyState(id, data, notificationsEnabled);
+          savePollyTimestamp(id, data.updatedAt!);
         }
         setIsLoading(false);
       });
@@ -316,8 +316,8 @@ export default function PollyDetailScreen() {
       await backgroundTaskService.startMonitoringPolly(id);
       const polly = await dataService.getPolly(id);
       if (polly) {
-        updateStoredPollyState(polly, true);
-        savePollyHash(polly);
+        updateStoredPollyState(id, polly, true);
+        savePollyTimestamp(id, polly.updatedAt!);
       }
       setNotificationsEnabled(true);
       Toast.show('Notifications enabled! You will now receive updates.', Toast.SHORT);
@@ -395,7 +395,7 @@ export default function PollyDetailScreen() {
       setPolly(prev => {
         const updatedPolly = prev ? { ...prev, description } : null;
         if (updatedPolly) {
-          updateStoredPollyState(updatedPolly, notificationsEnabled);
+          updateStoredPollyState(id, updatedPolly, notificationsEnabled);
         }
         return updatedPolly;
       });
@@ -616,8 +616,8 @@ export default function PollyDetailScreen() {
       const freshPolly = await dataService.getPolly(id);
       setPolly(freshPolly);
       if (freshPolly) {
-        updateStoredPollyState(freshPolly, notificationsEnabled);
-        savePollyHash(freshPolly);
+        updateStoredPollyState(id, freshPolly, notificationsEnabled);
+        savePollyTimestamp(id, freshPolly.updatedAt!);
       }
     } catch (error) {
       console.error('Error refreshing polly:', error);

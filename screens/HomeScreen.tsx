@@ -9,7 +9,7 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { v4 as uuidv4 } from 'uuid';
 import { dataService } from '../services/dataService';
 import { ValidationService } from '../services/validationService';
-import { cleanupOldHashesAndSettings, isPollyUpdated } from '../utils/pollyUtils';
+import { cleanupOldSettings, isPollyUpdated, savePollyTimestamp } from '../utils/pollyUtils';
 import type { Polly } from '../models/polly.model';
 import CustomText from '../components/CustomText';
 
@@ -35,7 +35,7 @@ export default function HomeScreen() {
         setPollyIds(parsed);
       }
     });
-    cleanupOldHashesAndSettings();
+    cleanupOldSettings();
   }, []);
 
   useFocusEffect(
@@ -135,9 +135,10 @@ export default function HomeScreen() {
       try {
         const polly = await dataService.getPolly(id);
         if (polly) {
-          const hasUpdate = await isPollyUpdated(id, polly);
+          const hasUpdate = await isPollyUpdated(id, polly.updatedAt);
           if (hasUpdate) {
             updated.add(id);
+            await savePollyTimestamp(id, polly.updatedAt!);
           }
         }
       } catch (error) {

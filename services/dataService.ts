@@ -30,6 +30,11 @@ class DataService {
     })
   }
 
+  private async updatePollyTimestamp(pollyId: string) {
+    const docRef = doc(db, this.pollyCollection, pollyId)
+    await updateDoc(docRef, { updatedAt: serverTimestamp() })
+  }
+
   private normalizePollyCollections(polly: Polly): Polly {
     const drivers = this.sortByGuid(polly.drivers ?? []).map((driver: any) => ({
       ...driver,
@@ -64,7 +69,7 @@ class DataService {
     return await errorService.withErrorHandling(async () => {
       const docRef = doc(db, this.pollyCollection, id)
       const { drivers, consumers, ...pollyData } = polly
-      const data = { ...pollyData, created: serverTimestamp() }
+      const data = { ...pollyData, created: serverTimestamp(), updatedAt: serverTimestamp() }
       await setDoc(docRef, data)
 
       if (consumers && consumers.length > 0) {
@@ -111,7 +116,7 @@ class DataService {
         const consumersSnap = await getDocs(consumersCollection)
         const consumers = consumersSnap.docs.map((consumerDoc: any) => ({ id: consumerDoc.id, ...consumerDoc.data() }))
 
-        return this.normalizePollyCollections({ ...data, created: data.created?.toDate(), drivers, consumers } as Polly)
+        return this.normalizePollyCollections({ ...data, created: data.created?.toDate(), updatedAt: data.updatedAt?.toDate(), drivers, consumers } as Polly)
       } else {
         throw new Error('Polly not found')
       }
@@ -137,7 +142,7 @@ class DataService {
         const consumersSnap = await getDocs(consumersCollection)
         const consumers = consumersSnap.docs.map((consumerDoc: any) => ({ id: consumerDoc.id, ...consumerDoc.data() })).sort((a: any, b: any) => a.id.localeCompare(b.id))
 
-        return this.normalizePollyCollections({ ...data, created: data.created?.toDate(), drivers, consumers } as Polly)
+        return this.normalizePollyCollections({ ...data, created: data.created?.toDate(), updatedAt: data.updatedAt?.toDate(), drivers, consumers } as Polly)
       } else {
         return null
       }
@@ -147,7 +152,7 @@ class DataService {
   async updatePolly(id: string, polly: Partial<Polly>) {
     return await errorService.withErrorHandling(async () => {
       const docRef = doc(db, this.pollyCollection, id)
-      const pollyData = { ...polly }
+      const pollyData = { ...polly, updatedAt: serverTimestamp() }
       delete pollyData.drivers
       if (Object.keys(pollyData).length > 0) {
         await updateDoc(docRef, pollyData)
@@ -183,6 +188,9 @@ class DataService {
         }
       }
 
+      // Update polly timestamp
+      await this.updatePollyTimestamp(pollyId)
+
       return driverDocRef.id
     }, { operation: 'create', entity: 'driver' }, true) // Show toast for user feedback
   }
@@ -197,6 +205,9 @@ class DataService {
 
       // Update driver timestamp to trigger subscription
       await updateDoc(driverDocRef, { lastUpdated: serverTimestamp() })
+
+      // Update polly timestamp
+      await this.updatePollyTimestamp(pollyId)
       return true;
     }, { operation: 'update', entity: 'driver' }, true) // Show toast for user feedback
   }
@@ -206,6 +217,9 @@ class DataService {
       const pollyDocRef = doc(db, this.pollyCollection, pollyId)
       const driverDocRef = doc(collection(pollyDocRef, 'drivers'), driverId)
       await deleteDoc(driverDocRef)
+
+      // Update polly timestamp
+      await this.updatePollyTimestamp(pollyId)
       return true;
     }, { operation: 'delete', entity: 'driver' }, true) // Show toast for user feedback
   }
@@ -232,6 +246,9 @@ class DataService {
       const data: any = { name: consumer.name };
       if (consumer.comments) data.comments = consumer.comments;
       const consumerDocRef = await addDoc(consumersCollection, data)
+
+      // Update polly timestamp
+      await this.updatePollyTimestamp(pollyId)
       return consumerDocRef.id
     }, { operation: 'create', entity: 'passenger' }, true) // Show toast for user feedback
   }
@@ -244,6 +261,9 @@ class DataService {
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const { id: _, ...consumerData } = consumer
       await updateDoc(consumerDocRef, consumerData)
+
+      // Update polly timestamp
+      await this.updatePollyTimestamp(pollyId)
       return true;
     }, { operation: 'update', entity: 'passenger' }, true) // Show toast for user feedback
   }
@@ -254,6 +274,9 @@ class DataService {
       const driverDocRef = doc(collection(pollyDocRef, 'drivers'), driverId)
       const consumerDocRef = doc(collection(driverDocRef, 'consumers'), consumerId)
       await deleteDoc(consumerDocRef)
+
+      // Update polly timestamp
+      await this.updatePollyTimestamp(pollyId)
       return true;
     }, { operation: 'delete', entity: 'passenger' }, true) // Show toast for user feedback
   }
@@ -279,6 +302,9 @@ class DataService {
       const data: any = { name: consumer.name };
       if (consumer.comments) data.comments = consumer.comments;
       const consumerDocRef = await addDoc(consumersCollection, data)
+
+      // Update polly timestamp
+      await this.updatePollyTimestamp(pollyId)
       return consumerDocRef.id
     }, { operation: 'create', entity: 'passenger' }, true) // Show toast for user feedback
   }
@@ -288,6 +314,9 @@ class DataService {
       const pollyDocRef = doc(db, this.pollyCollection, pollyId)
       const consumerDocRef = doc(collection(pollyDocRef, 'consumers'), consumerId)
       await deleteDoc(consumerDocRef)
+
+      // Update polly timestamp
+      await this.updatePollyTimestamp(pollyId)
       return true;
     }, { operation: 'delete', entity: 'passenger' }, true) // Show toast for user feedback
   }
@@ -312,6 +341,9 @@ class DataService {
 
       // Delete dangling consumer
       await deleteDoc(consumerDocRef)
+
+      // Update polly timestamp
+      await this.updatePollyTimestamp(pollyId)
 
       return true;
     }, { operation: 'move', entity: 'passenger' }, true) // Show toast for user feedback
@@ -339,7 +371,7 @@ class DataService {
             const consumersSnap = await getDocs(consumersCollection)
             const consumers = consumersSnap.docs.map((consumerDoc: any) => ({ id: consumerDoc.id, ...consumerDoc.data() })).sort((a: any, b: any) => a.id.localeCompare(b.id))
 
-            callback(this.normalizePollyCollections({ ...(data as any), created: (data as any)?.created?.toDate(), drivers, consumers } as Polly))
+            callback(this.normalizePollyCollections({ ...(data as any), created: (data as any)?.created?.toDate(), updatedAt: (data as any)?.updatedAt?.toDate(), drivers, consumers } as Polly))
           } else {
             callback(null)
           }
@@ -411,7 +443,7 @@ class DataService {
             const consumersSnap = await getDocs(consumersCollection)
             const consumers = consumersSnap.docs.map((consumerDoc: any) => ({ id: consumerDoc.id, ...consumerDoc.data() }))
 
-            return this.normalizePollyCollections({ id: pollyDoc.id, ...data, created: data?.created?.toDate(), drivers, consumers } as Polly)
+            return this.normalizePollyCollections({ id: pollyDoc.id, ...data, created: data?.created?.toDate(), updatedAt: data?.updatedAt?.toDate(), drivers, consumers } as Polly)
           }))
           callback(pollies)
         } catch (error) {
