@@ -3,13 +3,13 @@ import React, { useState, useEffect } from 'react';
 import { View, TextInput, TouchableOpacity, StyleSheet, ScrollView, Image } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import MD5 from 'crypto-js/md5';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { v4 as uuidv4 } from 'uuid';
 import { dataService } from '../services/dataService';
 import { ValidationService } from '../services/validationService';
+import { cleanupOldSettings, isPollyUpdated, savePollyTimestamp } from '../utils/pollyUtils';
 import type { Polly } from '../models/polly.model';
 import CustomText from '../components/CustomText';
 
@@ -28,26 +28,6 @@ export default function HomeScreen() {
   const [descriptions, setDescriptions] = useState<{ [id: string]: string }>({});
   const [updatedPollies, setUpdatedPollies] = useState<Set<string>>(new Set());
 
-  const cleanupOldHashes = async () => {
-    try {
-      const keys = await AsyncStorage.getAllKeys();
-      const oldKeys = keys.filter(key => key.startsWith('polly-hash-') || key.startsWith('notification_settings_'));
-      const now = Date.now();
-      const thirtyDays = 30 * 24 * 60 * 60 * 1000;
-      for (const key of oldKeys) {
-        const value = await AsyncStorage.getItem(key);
-        if (value) {
-          const { timestamp } = JSON.parse(value);
-          if (now - timestamp > thirtyDays) {
-            await AsyncStorage.removeItem(key);
-          }
-        }
-      }
-    } catch (error) {
-      console.error('Error cleaning up old hashes and settings:', error);
-    }
-  };
-
   useEffect(() => {
     AsyncStorage.getItem('pollyIds').then(ids => {
       if (ids) {
@@ -55,7 +35,7 @@ export default function HomeScreen() {
         setPollyIds(parsed);
       }
     });
-    cleanupOldHashes();
+    cleanupOldSettings();
   }, []);
 
   useFocusEffect(
@@ -155,14 +135,10 @@ export default function HomeScreen() {
       try {
         const polly = await dataService.getPolly(id);
         if (polly) {
-          const currentHash = MD5(JSON.stringify(polly)).toString();
-          const hashKey = 'polly-hash-' + id;
-          const stored = await AsyncStorage.getItem(hashKey);
-          if (stored) {
-            const { hash } = JSON.parse(stored);
-            if (hash !== currentHash) {
-              updated.add(id);
-            }
+          const hasUpdate = await isPollyUpdated(id, polly.updatedAt);
+          if (hasUpdate) {
+            updated.add(id);
+            await savePollyTimestamp(id, polly.updatedAt!);
           }
         }
       } catch (error) {

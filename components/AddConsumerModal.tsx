@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, TouchableOpacity, StyleSheet, Modal, TextInput } from 'react-native';
+import { View, TouchableOpacity, StyleSheet, Modal, TextInput, Switch } from 'react-native';
 import CustomText from './CustomText';
 import { ValidationService } from '../services/validationService';
 import type { Consumer } from '../models/consumer.model';
@@ -8,20 +8,25 @@ interface AddConsumerModalProps {
   visible: boolean;
   onClose: () => void;
   onSubmit: (consumer: Consumer) => Promise<boolean>;
+  isDanglingConsumer?: boolean;
+  onEnableNotifications?: () => Promise<void>;
+  defaultName?: string;
 }
 
-export default function AddConsumerModal({ visible, onClose, onSubmit }: AddConsumerModalProps) {
-  const [consumerName, setConsumerName] = useState('');
+export default function AddConsumerModal({ visible, onClose, onSubmit, isDanglingConsumer = false, onEnableNotifications, defaultName = '' }: AddConsumerModalProps) {
+  const [consumerName, setConsumerName] = useState(defaultName);
   const [consumerComments, setConsumerComments] = useState('');
   const [consumerNameError, setConsumerNameError] = useState('');
+  const [enableNotifications, setEnableNotifications] = useState(false);
 
   useEffect(() => {
     if (visible) {
-      setConsumerName('');
+      setConsumerName(defaultName);
       setConsumerComments('');
       setConsumerNameError('');
+      setEnableNotifications(false);
     }
-  }, [visible]);
+  }, [visible, defaultName]);
 
   const resetConsumerErrors = () => {
     setConsumerNameError('');
@@ -46,7 +51,12 @@ export default function AddConsumerModal({ visible, onClose, onSubmit }: AddCons
     };
 
     // Fire the submit operation asynchronously - errors will be handled by toasts
-    onSubmit(consumer);
+    const success = await onSubmit(consumer);
+
+    if (success && isDanglingConsumer && enableNotifications && onEnableNotifications) {
+      // Enable notifications for this polly
+      await onEnableNotifications();
+    }
 
     // Reset form and close modal immediately after validation
     setConsumerName('');
@@ -64,7 +74,15 @@ export default function AddConsumerModal({ visible, onClose, onSubmit }: AddCons
     <Modal visible={visible} animationType="slide" transparent>
       <View style={styles.modalOverlay}>
         <View style={styles.modalContent}>
-          <CustomText type="h2" style={styles.modalTitle}>Join as Passenger</CustomText>
+          <CustomText type="h2" style={styles.modalTitle}>
+            {isDanglingConsumer ? 'Join Waiting List' : 'Join as Passenger'}
+          </CustomText>
+
+          {isDanglingConsumer && (
+            <CustomText style={styles.infoText}>
+              Add yourself to the waiting list to show that you need a ride. Drivers can pick you up from this list.
+            </CustomText>
+          )}
 
           <CustomText style={styles.label}>Your Name:</CustomText>
           <TextInput
@@ -90,12 +108,29 @@ export default function AddConsumerModal({ visible, onClose, onSubmit }: AddCons
             numberOfLines={3}
           />
 
+          {isDanglingConsumer && (
+            <View style={styles.notificationOption}>
+              <CustomText style={styles.label}>Enable notifications</CustomText>
+              <CustomText style={styles.notificationDescription}>
+                Send me notifications for this Polly.
+              </CustomText>
+              <Switch
+                value={enableNotifications}
+                onValueChange={setEnableNotifications}
+                trackColor={{ false: '#767577', true: '#81b0ff' }}
+                thumbColor={enableNotifications ? '#f5dd4b' : '#f4f3f4'}
+              />
+            </View>
+          )}
+
           <View style={styles.modalActions}>
             <TouchableOpacity style={styles.cancelButton} onPress={handleClose}>
               <CustomText>Cancel</CustomText>
             </TouchableOpacity>
             <TouchableOpacity style={styles.submitButton} onPress={handleSubmit}>
-              <CustomText style={styles.submitText}>Join Ride</CustomText>
+              <CustomText style={styles.submitText}>
+                {isDanglingConsumer ? 'Join Waiting List' : 'Join Ride'}
+              </CustomText>
             </TouchableOpacity>
           </View>
         </View>
@@ -122,6 +157,21 @@ const styles = StyleSheet.create({
     fontSize: 20,
     marginBottom: 20,
     textAlign: 'center',
+  },
+  infoText: {
+    fontSize: 14,
+    color: '#666',
+    marginBottom: 20,
+    textAlign: 'center',
+    fontStyle: 'italic',
+  },
+  notificationOption: {
+    marginBottom: 20,
+  },
+  notificationDescription: {
+    fontSize: 14,
+    color: '#666',
+    marginBottom: 10,
   },
   label: {
     fontSize: 16,

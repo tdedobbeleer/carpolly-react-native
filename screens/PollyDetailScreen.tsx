@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, TouchableOpacity, StyleSheet, Modal, TextInput, FlatList, Share, Image, Platform, RefreshControl, AppState, AppStateStatus } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
@@ -6,7 +6,6 @@ import * as Progress from 'react-native-progress';
 import * as Notifications from 'expo-notifications';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Toast from 'react-native-simple-toast';
-import MD5 from 'crypto-js/md5';
 import { backgroundTaskService } from '../services/backgroundTaskService';
 import CustomText from '../components/CustomText';
 import AddDriverModal from '../components/AddDriverModal';
@@ -14,29 +13,17 @@ import EditDriverModal from '../components/EditDriverModal';
 import EditPollyModal from '../components/EditPollyModal';
 import AddConsumerModal from '../components/AddConsumerModal';
 import AlertModal from '../components/AlertModal';
+import PassengersList from '../components/PassengersList';
 import { useRoute, useNavigation } from '@react-navigation/native';
 import { dataService } from '../services/dataService';
 import { ValidationService } from '../services/validationService';
+import { updateStoredPollyState, savePollyTimestamp } from '../utils/pollyUtils';
+import { useFunnyMessages } from '../hooks/useFunnyMessages';
+import { getUserSettings, UserSettings } from '../utils/userSettings';
 import type { Polly } from '../models/polly.model';
 import type { Driver } from '../models/driver.model';
 import type { Consumer } from '../models/consumer.model';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-
-const funnyMessages = [
-  "Who will call shotgun first?",
-  "I hope it's not too cramped",
-  "The thinnest sits in the middle!",
-  "The oldest chooses the spot first!",
-  "I hope the trunk can handle the junk.",
-  "Don't forget to go to the bathroom before you leave.",
-  "I hope it's a SUV.",
-  "Fasten your seatbelts! The driver is responsible.",
-  "Please, keep the car clean. It's like a house. Don't go in with dirty shoes.",
-  "Let's prepare a singalong playlist! That's always nice.",
-  "Keep quiet in the back, the driver needs to concentrate.",
-  "If you don't keep quiet, you can resume the rest of the drive on foot!",
-  "Don't fight over the Nintendo, everyone get's a turn."
-];
 
 type RootStackParamList = {
   Home: undefined;
@@ -49,6 +36,7 @@ export default function PollyDetailScreen() {
   const route = useRoute();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { id } = route.params as { id: string };
+  const { getFunnyMessage } = useFunnyMessages();
 
   const [polly, setPolly] = useState<Polly | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -73,45 +61,17 @@ export default function PollyDetailScreen() {
   const [alertButtons, setAlertButtons] = useState<any[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [appState, setAppState] = useState<AppStateStatus>(AppState.currentState);
-  const funnyMessagesRef = useRef<{ [driverId: string]: string }>({});
-
-  const getFunnyMessage = (driverId: string) => {
-    if (!funnyMessagesRef.current[driverId]) {
-      funnyMessagesRef.current[driverId] = funnyMessages[Math.floor(Math.random() * funnyMessages.length)];
-    }
-    return funnyMessagesRef.current[driverId];
-  };
-
-  // Helper function to update stored polly state for background notifications
-  const updateStoredPollyState = async (pollyData: Polly) => {
-    if (notificationsEnabled) {
-      try {
-        const stateKey = 'polly-state-' + id;
-        await AsyncStorage.setItem(stateKey, JSON.stringify(pollyData));
-        console.log('[PollyDetailScreen] Updated stored polly state for background notifications');
-      } catch (error) {
-        console.error('[PollyDetailScreen] Error updating stored polly state:', error);
-      }
-    }
-  };
-
-  // Helper function to save polly hash for update detection
-  const savePollyHash = async (pollyData: Polly) => {
-    try {
-      const hash = MD5(JSON.stringify(pollyData)).toString();
-      const hashKey = 'polly-hash-' + id;
-      const stored = await AsyncStorage.getItem(hashKey);
-      if (stored) {
-        const { hash: storedHash } = JSON.parse(stored);
-        if (storedHash === hash) {
-          return; // No change, skip save
-        }
-      }
-      await AsyncStorage.setItem(hashKey, JSON.stringify({ hash, timestamp: Date.now() }));
-    } catch (error) {
-      console.error('[PollyDetailScreen] Error saving polly hash:', error);
-    }
-  };
+  const [draggedConsumer, setDraggedConsumer] = useState<Consumer | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const [isAddingToDriver, setIsAddingToDriver] = useState(false);
+  const [dragOverDriver, setDragOverDriver] = useState<string | null>(null);
+  const [driverPositions, setDriverPositions] = useState<{ [driverId: string]: { x: number, y: number, width: number, height: number } }>({});
+  const driverRefs = React.useRef<{ [driverId: string]: any }>({});
+  const [userSettings, setUserSettings] = useState<UserSettings>({
+    name: '',
+    driverDescription: '',
+    driverSpots: 1,
+  });
 
 
 
@@ -136,7 +96,18 @@ export default function PollyDetailScreen() {
       }
     };
 
+    // Load user settings when component mounts
+    const loadUserSettings = async () => {
+      try {
+        const settings = await getUserSettings();
+        setUserSettings(settings);
+      } catch (error) {
+        console.error('Error loading user settings:', error);
+      }
+    };
+
     loadNotificationSettings();
+    loadUserSettings();
 
     let unsubscribePromise: Promise<(() => void) | null> | undefined;
 
@@ -166,8 +137,8 @@ export default function PollyDetailScreen() {
         setPreviousPolly(data);
         setPolly(data);
         if (data) {
-          updateStoredPollyState(data);
-          savePollyHash(data);
+          updateStoredPollyState(id, data, notificationsEnabled);
+          savePollyTimestamp(id, data.updatedAt!);
         }
         setIsLoading(false);
       });
@@ -215,7 +186,7 @@ export default function PollyDetailScreen() {
     if (polly?.drivers) {
       const newExpanded: { [key: string]: boolean } = {};
       const newDriverNotifications: { [driverId: string]: boolean } = {};
-      polly.drivers.forEach(driver => {
+      (polly.drivers || []).forEach(driver => {
         if (driver.id) {
           newExpanded[driver.id] = true;
           newDriverNotifications[driver.id] = backgroundTaskService.isMonitoringDriver(id, driver.id);
@@ -224,6 +195,8 @@ export default function PollyDetailScreen() {
       setExpandedDrivers(newExpanded);
       setDriverNotificationsEnabled(newDriverNotifications);
       setExpandAll(true);
+      // Reset driver positions when drivers change
+      setDriverPositions({});
     }
   }, [polly?.drivers, id]);
 
@@ -323,8 +296,86 @@ export default function PollyDetailScreen() {
     setAlertVisible(true);
   };
 
+  const handleAddDanglingConsumer = async (consumer: Consumer): Promise<boolean> => {
+    if (!ValidationService.checkRateLimit('addConsumer', 10, 60000)) {
+      ValidationService.showRateLimitModal('add consumer', 10, 60000);
+      return false;
+    }
+
+    const result = await dataService.createDanglingConsumer(id, consumer);
+    if (result !== null) {
+      setShowAddConsumerModal(false);
+      return true;
+    }
+    return false;
+  };
+
+  const handleEnableNotifications = async (): Promise<void> => {
+    try {
+      await dataService.saveNotificationSettings(id, true);
+      await backgroundTaskService.startMonitoringPolly(id);
+      const polly = await dataService.getPolly(id);
+      if (polly) {
+        updateStoredPollyState(id, polly, true);
+        savePollyTimestamp(id, polly.updatedAt!);
+      }
+      setNotificationsEnabled(true);
+      Toast.show('Notifications enabled! You will now receive updates.', Toast.SHORT);
+    } catch (error) {
+      console.error('Error enabling notifications:', error);
+      Toast.show('Failed to enable notifications.', Toast.SHORT);
+    }
+  };
+
+  const handleDeleteDanglingConsumer = async (consumerId: string) => {
+    setAlertTitle('Confirm Removal');
+    setAlertMessage('Are you sure you want to remove this passenger?');
+    setAlertButtons([
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Remove',
+        style: 'destructive',
+        onPress: async () => {
+          await dataService.deleteDanglingConsumer(id, consumerId);
+        }
+      }
+    ]);
+    setAlertVisible(true);
+  };
+
+  const handleDragStart = (consumer: Consumer) => {
+    console.log('Drag started for consumer:', consumer.name);
+    setDraggedConsumer(consumer);
+    setIsDragging(true);
+  };
+
+  const handleDragEnd = () => {
+    console.log('Drag ended');
+    setDragOverDriver(null);
+    setDraggedConsumer(null);
+    setIsDragging(false);
+  };
+
+
+  const handleDropOnDriver = async (driverId: string) => {
+    const driver = polly?.drivers?.find(d => d.id === driverId);
+    if (draggedConsumer?.id && driver && (driver.consumers?.length || 0) < (driver.spots || 0)) {
+      await dataService.moveConsumerToDriver(id, draggedConsumer.id, driverId);
+      setDraggedConsumer(null);
+      setIsDragging(false);
+      setDragOverDriver(null);
+      Toast.show(`${draggedConsumer.name} joined ${driver.name}'s ride!`, Toast.SHORT);
+    }
+  };
+
   const openAddConsumerModal = (driverIndex: number) => {
     setSelectedDriverIndex(driverIndex);
+    setIsAddingToDriver(true);
+    setShowAddConsumerModal(true);
+  };
+
+  const openAddDanglingConsumerModal = () => {
+    setIsAddingToDriver(false);
     setShowAddConsumerModal(true);
   };
 
@@ -344,7 +395,7 @@ export default function PollyDetailScreen() {
       setPolly(prev => {
         const updatedPolly = prev ? { ...prev, description } : null;
         if (updatedPolly) {
-          updateStoredPollyState(updatedPolly);
+          updateStoredPollyState(id, updatedPolly, notificationsEnabled);
         }
         return updatedPolly;
       });
@@ -402,6 +453,20 @@ export default function PollyDetailScreen() {
 
     const prevDrivers = prev.drivers || [];
     const currentDrivers = current.drivers || [];
+    const prevConsumers = prev.consumers || [];
+    const currentConsumers = current.consumers || [];
+
+    // Check for added dangling consumers
+    const addedConsumers = currentConsumers.filter(cc => !prevConsumers.find(pc => pc.id === cc.id));
+    addedConsumers.forEach(consumer => {
+      messages.push(`"${consumer.name}" joined the polly as a passenger.`);
+    });
+
+    // Check for removed dangling consumers
+    const removedConsumers = prevConsumers.filter(pc => !currentConsumers.find(cc => pc.id === cc.id));
+    removedConsumers.forEach(consumer => {
+      messages.push(`"${consumer.name}" left the polly.`);
+    });
 
     // Check for added drivers
     const addedDrivers = currentDrivers.filter(cd => !prevDrivers.find(pd => pd.id === cd.id));
@@ -551,8 +616,8 @@ export default function PollyDetailScreen() {
       const freshPolly = await dataService.getPolly(id);
       setPolly(freshPolly);
       if (freshPolly) {
-        updateStoredPollyState(freshPolly);
-        savePollyHash(freshPolly);
+        updateStoredPollyState(id, freshPolly, notificationsEnabled);
+        savePollyTimestamp(id, freshPolly.updatedAt!);
       }
     } catch (error) {
       console.error('Error refreshing polly:', error);
@@ -597,15 +662,16 @@ export default function PollyDetailScreen() {
       style={styles.container}
     >
       <FlatList
-        data={polly.drivers?.sort((a, b) => {
+        data={[...(polly.drivers || [])].sort((a, b) => {
           const aAvailable = (a.spots || 0) - (a.consumers?.length || 0);
           const bAvailable = (b.spots || 0) - (b.consumers?.length || 0);
           return bAvailable - aAvailable; // Higher available spots first
         })}
         keyExtractor={(item, index) => item.id || index.toString()}
         contentContainerStyle={styles.content}
+        scrollEnabled={!isDragging}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} enabled={!isDragging} />
         }
         ListHeaderComponent={
           <>
@@ -613,145 +679,216 @@ export default function PollyDetailScreen() {
               <CustomText type="h1" style={styles.title}>{polly.description}</CustomText>
             </TouchableOpacity>
 
+            <PassengersList
+              consumers={polly.consumers || []}
+              expandedComments={expandedComments}
+              draggedConsumer={draggedConsumer}
+              onDragStart={handleDragStart}
+              onDragEnd={handleDragEnd}
+              onToggleComments={toggleComments}
+              onDeleteConsumer={handleDeleteDanglingConsumer}
+              dragOverDriver={dragOverDriver}
+              onDrop={handleDropOnDriver}
+              driverPositions={driverPositions}
+              onDragOver={setDragOverDriver}
+            />
+
             <View style={styles.driversHeader}>
               <CustomText type="h2" style={styles.driversTitle}>Drivers and spots available</CustomText>
               <View style={styles.headerActions}>
-                <TouchableOpacity style={styles.addDriverButton} onPress={() => setShowAddDriverModal(true)}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                    <Ionicons name="car" size={16} color="black" />
-                    <CustomText style={styles.addDriverText}>I'm a driver!</CustomText>
-                  </View>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.expandAllButton} onPress={toggleExpandAll}>
-                  <CustomText style={styles.expandAllText}>{expandAll ? 'Collapse All' : 'Expand All'}</CustomText>
-                </TouchableOpacity>
+                {(() => {
+                  const noDrivers = !polly.drivers || polly.drivers.length === 0;
+                  const allSpotsFilled = polly.drivers?.every(driver => (driver.consumers?.length || 0) >= (driver.spots || 0)) || false;
+                  const showPassengerButton = noDrivers || allSpotsFilled;
+
+                  return (
+                    <>
+                      <View style={styles.buttonGroup}>
+                        {showPassengerButton && (
+                          <TouchableOpacity
+                            style={[styles.addPassengerButton, styles.buttonGroupLeft]}
+                            onPress={openAddDanglingConsumerModal}
+                          >
+                            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                              <Ionicons name="person" size={16} color="black" />
+                              <CustomText style={styles.addPassengerText}>I'm a passenger!</CustomText>
+                            </View>
+                          </TouchableOpacity>
+                        )}
+                        <TouchableOpacity
+                          style={[
+                            styles.addDriverButton,
+                            showPassengerButton ? styles.buttonGroupRight : styles.buttonGroupSingle
+                          ]}
+                          onPress={() => setShowAddDriverModal(true)}
+                        >
+                          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                            <Ionicons name="car" size={16} color="black" />
+                            <CustomText style={styles.addDriverText}>I'm a driver!</CustomText>
+                          </View>
+                        </TouchableOpacity>
+                      </View>
+                      <TouchableOpacity style={styles.expandAllButton} onPress={toggleExpandAll}>
+                        <CustomText style={styles.expandAllText}>{expandAll ? 'Collapse All' : 'Expand All'}</CustomText>
+                      </TouchableOpacity>
+                    </>
+                  );
+                })()}
               </View>
             </View>
 
-            {(!polly.drivers || polly.drivers.length === 0) && (
+            {((polly.drivers || []).length === 0) && ((polly.consumers || []).length === 0) && (
               <View style={styles.noDriversCard}>
-                <CustomText>No drivers yet! Be a good parrot and offer a ride 🦜</CustomText>
+                <CustomText>No drivers yet.</CustomText>
+                <CustomText>Use the share button to share this Polly with your friends or be a good parrot and offer a ride yourself 🦜</CustomText>
+                <CustomText>You can also add yourself as a passenger and wait for drivers.</CustomText>
+                <CustomText>Giddy up!</CustomText>
               </View>
             )}
           </>
         }
-        renderItem={({ item, index }) => (
-          <View style={styles.driverCard}>
-            <TouchableOpacity onPress={() => openEditDriverModal(item)}>
-              <View style={styles.driverHeader}>
-                <View style={styles.nameContainer}>
-                  <CustomText type="h3" style={styles.driverName}>{item.name}</CustomText>
-                </View>
-                <View style={styles.headerRight}>
-                  {!notificationsEnabled && (
-                    <TouchableOpacity
-                      style={styles.driverNotificationButton}
-                      onPress={() => {
-                        setSelectedDriverForNotifications(item);
-                        setShowDriverNotificationsModal(true);
-                      }}
-                    >
-                      <Ionicons name="notifications" size={20} color="black" />
-                      {driverNotificationsEnabled[item.id!] && (
-                        <View style={styles.driverNotificationBadge} />
-                      )}
-                    </TouchableOpacity>
-                  )}
-                  <TouchableOpacity style={styles.progressContainer} onPress={() => toggleDriverExpansion(item.id!)}>
-                    <Progress.Circle
-                      size={40}
-                      progress={(item.consumers?.length || 0) / (item.spots || 1)}
-                      showsText
-                      formatText={() => `${item.consumers?.length || 0}/${item.spots || 0}`}
-                      textStyle={{ fontSize: 12 }}
-                      color="#007bff"
-                      unfilledColor="#e0e0e0"
-                      borderWidth={0}
-                    />
-                    <Ionicons
-                      name={expandedDrivers[item.id!] ? "chevron-up" : "chevron-down"}
-                      size={20}
-                      color="black"
-                      style={styles.arrowIcon}
-                    />
-                  </TouchableOpacity>
-                </View>
-              </View>
-            </TouchableOpacity>
-            <CustomText style={styles.driverDescription}>Meeting details: {item.description}</CustomText>
-            {expandedDrivers[item.id!] && (
-              <>
-                <View style={styles.consumersList}>
-                  {item.consumers && item.consumers.length > 0 ? (
-                    item.consumers.map((consumer, consumerIndex) => (
-                      <View key={consumer.id || consumerIndex}>
-                        <View style={styles.consumerItem}>
-                          <CustomText>{consumer.name}</CustomText>
-                          <View style={styles.consumerActions}>
-                            {consumer.comments && (
-                              <TouchableOpacity onPress={() => toggleComments(consumer.id || consumerIndex.toString())}>
-                                <Ionicons name="chatbubble" size={16} color="black" />
-                              </TouchableOpacity>
-                            )}
-                            <TouchableOpacity
-                              onPress={() => consumer.id && item.id && handleDeleteConsumer(item.id, consumer.id)}
-                              style={styles.deleteButton}
-                            >
-                              <Ionicons name="trash" size={16} color="black" />
-                            </TouchableOpacity>
-                          </View>
-                        </View>
-                        {expandedComments[consumer.id || consumerIndex.toString()] && consumer.comments && (
-                          <View style={styles.commentContainer}>
-                            <CustomText style={styles.commentText}>{consumer.comments}</CustomText>
-                          </View>
-                        )}
-                      </View>
-                    ))
-                  ) : (
-                    <CustomText>No passengers yet 😔</CustomText>
-                  )}
-                   {(item.consumers?.length || 0) >= (item.spots || 0) && (
-                     <CustomText style={styles.fullWarningText}>
-                       Car is full! {getFunnyMessage(item.id!)}
-                     </CustomText>
-                   )}
-                </View>
+        renderItem={({ item, index }) => {
+          const isDropTarget = draggedConsumer && (item.consumers?.length || 0) < (item.spots || 0);
+          const isDragOver = dragOverDriver === item.id;
 
-                <View style={styles.driverActions}>
-                  <TouchableOpacity
-                    style={[styles.joinButton, (item.consumers?.length || 0) >= (item.spots || 0) && styles.disabledButton]}
-                    onPress={() => openAddConsumerModal(index)}
-                    disabled={(item.consumers?.length || 0) >= (item.spots || 0)}
-                  >
-                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                      <Ionicons name="person" size={16} color="black" />
-                      <CustomText>I wanna join this ride!</CustomText>
-                    </View>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    onPress={() => item.id && handleDeleteDriver(item.id)}
-                    style={styles.deleteDriverButton}
-                  >
-                    <CustomText style={styles.deleteDriverText}>Remove driver</CustomText>
-                  </TouchableOpacity>
+          return (
+            <View
+              style={[
+                styles.driverCard,
+                isDropTarget && styles.dropTarget,
+                isDragOver && styles.dragOverTarget
+              ]}
+              ref={(ref) => { if (ref) driverRefs.current[item.id!] = ref; }}
+              onLayout={() => {
+                if (driverRefs.current[item.id!]) {
+                  driverRefs.current[item.id!].measure((x: number, y: number, width: number, height: number, pageX: number, pageY: number) => {
+                    setDriverPositions(prev => ({ ...prev, [item.id!]: { x: pageX, y: pageY, width, height } }));
+                  });
+                }
+              }}
+            >
+              <TouchableOpacity onPress={() => openEditDriverModal(item)}>
+                <View style={styles.driverHeader}>
+                  <View style={styles.nameContainer}>
+                    <CustomText type="h3" style={styles.driverName}>{item.name}</CustomText>
+                  </View>
+                  <View style={styles.headerRight}>
+                    {!notificationsEnabled && (
+                      <TouchableOpacity
+                        style={styles.driverNotificationButton}
+                        onPress={() => {
+                          setSelectedDriverForNotifications(item);
+                          setShowDriverNotificationsModal(true);
+                        }}
+                      >
+                        <Ionicons name="notifications" size={20} color="black" />
+                        {driverNotificationsEnabled[item.id!] && (
+                          <View style={styles.driverNotificationBadge} />
+                        )}
+                      </TouchableOpacity>
+                    )}
+                    <TouchableOpacity style={styles.progressContainer} onPress={() => toggleDriverExpansion(item.id!)}>
+                      <Progress.Circle
+                        size={40}
+                        progress={(item.consumers?.length || 0) / (item.spots || 1)}
+                        showsText
+                        formatText={() => `${item.consumers?.length || 0}/${item.spots || 0}`}
+                        textStyle={{ fontSize: 12 }}
+                        color="#007bff"
+                        unfilledColor="#e0e0e0"
+                        borderWidth={0}
+                      />
+                      <Ionicons
+                        name={expandedDrivers[item.id!] ? "chevron-up" : "chevron-down"}
+                        size={20}
+                        color="black"
+                        style={styles.arrowIcon}
+                      />
+                    </TouchableOpacity>
+                  </View>
                 </View>
-              </>
-            )}
-          </View>
-        )}
+              </TouchableOpacity>
+              <CustomText style={styles.driverDescription}>Meeting details: {item.description}</CustomText>
+              {expandedDrivers[item.id!] && (
+                <>
+                  <View style={styles.consumersList}>
+                    {item.consumers && item.consumers.length > 0 ? (
+                      item.consumers.map((consumer, consumerIndex) => (
+                        <View key={consumer.id || consumerIndex}>
+                          <View style={styles.consumerItem}>
+                            <CustomText>{consumer.name}</CustomText>
+                            <View style={styles.consumerActions}>
+                              {consumer.comments && (
+                                <TouchableOpacity onPress={() => toggleComments(consumer.id || consumerIndex.toString())}>
+                                  <Ionicons name="chatbubble" size={16} color="black" />
+                                </TouchableOpacity>
+                              )}
+                              <TouchableOpacity
+                                onPress={() => consumer.id && item.id && handleDeleteConsumer(item.id, consumer.id)}
+                                style={styles.deleteButton}
+                              >
+                                <Ionicons name="trash" size={16} color="black" />
+                              </TouchableOpacity>
+                            </View>
+                          </View>
+                          {expandedComments[consumer.id || consumerIndex.toString()] && consumer.comments && (
+                            <View style={styles.commentContainer}>
+                              <CustomText style={styles.commentText}>{consumer.comments}</CustomText>
+                            </View>
+                          )}
+                        </View>
+                      ))
+                    ) : (
+                      <CustomText>No passengers yet 😔</CustomText>
+                    )}
+                     {(item.consumers?.length || 0) >= (item.spots || 0) && (
+                       <CustomText style={styles.fullWarningText}>
+                         Car is full! {getFunnyMessage(item.id!)}
+                       </CustomText>
+                     )}
+                  </View>
+
+                  <View style={styles.driverActions}>
+                    <TouchableOpacity
+                      style={[styles.joinButton, (item.consumers?.length || 0) >= (item.spots || 0) && styles.disabledButton]}
+                      onPress={() => openAddConsumerModal(index)}
+                      disabled={(item.consumers?.length || 0) >= (item.spots || 0)}
+                    >
+                      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                        <Ionicons name="person" size={16} color="black" />
+                        <CustomText>I wanna join this ride!</CustomText>
+                      </View>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      onPress={() => item.id && handleDeleteDriver(item.id)}
+                      style={styles.deleteDriverButton}
+                    >
+                      <CustomText style={styles.deleteDriverText}>Remove driver</CustomText>
+                    </TouchableOpacity>
+                  </View>
+                </>
+              )}
+            </View>
+          );
+        }}
       />
 
       <AddDriverModal
         visible={showAddDriverModal}
         onClose={() => setShowAddDriverModal(false)}
         onSubmit={handleAddDriver}
+        defaultName={userSettings.name}
+        defaultDescription={userSettings.driverDescription}
+        defaultSpots={userSettings.driverSpots}
       />
 
       <AddConsumerModal
         visible={showAddConsumerModal}
         onClose={() => setShowAddConsumerModal(false)}
-        onSubmit={handleAddConsumer}
+        onSubmit={isAddingToDriver ? handleAddConsumer : handleAddDanglingConsumer}
+        isDanglingConsumer={!isAddingToDriver}
+        onEnableNotifications={handleEnableNotifications}
+        defaultName={userSettings.name}
       />
 
       <EditPollyModal
@@ -987,6 +1124,39 @@ const styles = StyleSheet.create({
     fontSize: 18,
     marginBottom: 10,
   },
+  addPassengerButton: {
+    backgroundColor: '#fff',
+    padding: 10,
+    borderRadius: 8,
+    borderWidth: 2,
+    borderColor: '#000',
+    shadowColor: '#000',
+    shadowOffset: { width: 2, height: 2 },
+    shadowOpacity: 0.5,
+    shadowRadius: 0,
+    elevation: 5,
+    marginRight: 10,
+  },
+  addPassengerText: {
+    color: '#000',
+  },
+  buttonGroup: {
+    flexDirection: 'row',
+    marginRight: 10,
+  },
+  buttonGroupLeft: {
+    borderTopRightRadius: 0,
+    borderBottomRightRadius: 0,
+    borderRightWidth: 0,
+  },
+  buttonGroupRight: {
+    borderTopLeftRadius: 0,
+    borderBottomLeftRadius: 0,
+    marginLeft: -15,
+  },
+  buttonGroupSingle: {
+    borderRadius: 8,
+  },
   addDriverButton: {
     backgroundColor: '#fff',
     padding: 10,
@@ -1013,6 +1183,18 @@ const styles = StyleSheet.create({
     padding: 15,
     borderRadius: 8,
     marginBottom: 15,
+    elevation: 0,
+  },
+  dropTarget: {
+    borderWidth: 2,
+    borderColor: '#28a745',
+    borderStyle: 'dashed',
+  },
+  dragOverTarget: {
+    borderWidth: 3,
+    borderColor: '#007bff',
+    borderStyle: 'solid',
+    backgroundColor: 'rgba(0, 123, 255, 0.1)',
   },
   driverHeader: {
     flexDirection: 'row',

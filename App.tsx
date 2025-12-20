@@ -17,6 +17,10 @@ import HomeScreen from './screens/HomeScreen';
 import PollyDetailScreen from './screens/PollyDetailScreen';
 import AboutScreen from './screens/AboutScreen';
 import FAQScreen from './screens/FAQScreen';
+import SettingsScreen from './screens/SettingsScreen';
+import SettingsUserProfileScreen from './screens/SettingsUserProfileScreen';
+import SettingsDriverDefaultsScreen from './screens/SettingsDriverDefaultsScreen';
+import SettingsNotificationsScreen from './screens/SettingsNotificationsScreen';
 
 const Drawer = createDrawerNavigator();
 const Stack = createNativeStackNavigator();
@@ -68,6 +72,12 @@ function CustomDrawerContent(props: any) {
         labelStyle={{ fontFamily: 'Neucha_400Regular' }}
       />
       <DrawerItem
+        label="Settings"
+        onPress={() => props.navigation.navigate('HomeStack', { screen: 'Settings' })}
+        icon={({ color, size }) => <Ionicons name="settings" color={color} size={size} />}
+        labelStyle={{ fontFamily: 'Neucha_400Regular' }}
+      />
+      <DrawerItem
         label="Support"
         onPress={() => Linking.openURL('https://carpolly.com/support')}
         icon={({ color, size }) => <Ionicons name="headset" color={color} size={size} />}
@@ -108,6 +118,22 @@ function HomeStack() {
       <Stack.Screen name="PollyDetail" component={PollyDetailScreen} />
       <Stack.Screen name="About" component={AboutScreen} />
       <Stack.Screen name="FAQ" component={FAQScreen} />
+      <Stack.Screen name="Settings" component={SettingsScreen} />
+      <Stack.Screen
+        name="SettingsUserProfile"
+        component={SettingsUserProfileScreen}
+        options={{ title: 'User Profile' }}
+      />
+      <Stack.Screen
+        name="SettingsDriverDefaults"
+        component={SettingsDriverDefaultsScreen}
+        options={{ title: 'Driver Defaults' }}
+      />
+      <Stack.Screen
+        name="SettingsNotifications"
+        component={SettingsNotificationsScreen}
+        options={{ title: 'Notifications' }}
+      />
     </Stack.Navigator>
   );
 }

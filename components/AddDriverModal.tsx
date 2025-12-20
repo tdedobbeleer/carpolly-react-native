@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, TouchableOpacity, StyleSheet, Modal, TextInput } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import CustomText from './CustomText';
@@ -9,15 +9,27 @@ interface AddDriverModalProps {
   visible: boolean;
   onClose: () => void;
   onSubmit: (driver: Driver) => Promise<boolean>;
+  defaultName?: string;
+  defaultDescription?: string;
+  defaultSpots?: number;
 }
 
-export default function AddDriverModal({ visible, onClose, onSubmit }: AddDriverModalProps) {
-  const [driverName, setDriverName] = useState('');
-  const [driverDescription, setDriverDescription] = useState('');
-  const [driverSpots, setDriverSpots] = useState('1');
+export default function AddDriverModal({ visible, onClose, onSubmit, defaultName = '', defaultDescription = '', defaultSpots = 1 }: AddDriverModalProps) {
+  const [driverName, setDriverName] = useState(defaultName);
+  const [driverDescription, setDriverDescription] = useState(defaultDescription);
+  const [driverSpots, setDriverSpots] = useState(defaultSpots.toString());
   const [driverNameError, setDriverNameError] = useState('');
   const [driverDescriptionError, setDriverDescriptionError] = useState('');
   const [driverSpotsError, setDriverSpotsError] = useState('');
+
+  useEffect(() => {
+    if (visible) {
+      setDriverName(defaultName);
+      setDriverDescription(defaultDescription);
+      setDriverSpots(defaultSpots.toString());
+      resetDriverErrors();
+    }
+  }, [visible, defaultName, defaultDescription, defaultSpots]);
 
   const resetDriverErrors = () => {
     setDriverNameError('');
