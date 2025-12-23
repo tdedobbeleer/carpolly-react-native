@@ -216,6 +216,26 @@ class DataService {
     return await errorService.withErrorHandling(async () => {
       const pollyDocRef = doc(db, this.pollyCollection, pollyId)
       const driverDocRef = doc(collection(pollyDocRef, 'drivers'), driverId)
+      
+      // First, get all consumers from the driver before deleting
+      const driverConsumersCollection = collection(driverDocRef, 'consumers')
+      const driverConsumersSnap = await getDocs(driverConsumersCollection)
+      const driverConsumers = driverConsumersSnap.docs.map((consumerDoc: any) => ({ 
+        id: consumerDoc.id, 
+        ...consumerDoc.data() 
+      }))
+      
+      // Move all driver consumers to dangling consumers (waiting list)
+      if (driverConsumers.length > 0) {
+        const danglingConsumersCollection = collection(pollyDocRef, 'consumers')
+        for (const consumer of driverConsumers) {
+          // Create consumer data without the Firestore document ID
+          const { id, ...consumerData } = consumer
+          await addDoc(danglingConsumersCollection, consumerData)
+        }
+      }
+      
+      // Now delete the driver
       await deleteDoc(driverDocRef)
 
       // Update polly timestamp

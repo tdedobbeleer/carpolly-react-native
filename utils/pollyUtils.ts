@@ -64,8 +64,13 @@ export const savePollyTimestamp = async (pollyId: string, updatedAt: Date) => {
   if (!pollyId || !updatedAt) return;
 
   try {
+    const updatedAtString = updatedAt.toISOString();
+    const stored = await getStoredPollyTimestamp(pollyId);
+    if (stored?.updatedAt === updatedAtString) {
+      return; // No change, skip save
+    }
     await AsyncStorage.setItem(getPollyTimestampKey(pollyId), JSON.stringify({ 
-      updatedAt: updatedAt.toISOString()
+      updatedAt: updatedAtString
     }));
   } catch (error) {
     console.error('[PollyDetailScreen] Error saving polly timestamp:', error);
