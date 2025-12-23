@@ -266,7 +266,7 @@ export default function PollyDetailScreen() {
 
   const handleDeleteDriver = async (driverId: string) => {
     setAlertTitle('Confirm Removal');
-    setAlertMessage('Are you sure you want to remove this driver?');
+    setAlertMessage('Are you sure you want to remove this driver?\n\nAny passengers in this driver will be moved to the waiting list and can join another driver.');
     setAlertButtons([
       { text: 'Cancel', style: 'cancel' },
       {
